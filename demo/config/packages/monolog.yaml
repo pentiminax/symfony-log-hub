@@ -17,7 +17,7 @@ when@dev:
             loghub:
                 type: service
                 id: loghub.monolog_handler
-                level: info
+                level: debug
                 channels: ["!http_client"]
 
 when@test:

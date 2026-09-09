@@ -3,6 +3,7 @@
 namespace App\Controller;
 
 use App\Message\TestLogMessage;
+use Doctrine\DBAL\Connection;
 use Psr\Log\LoggerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\RedirectResponse;
@@ -15,6 +16,7 @@ final class DemoLogController extends AbstractController
     public function __construct(
         private readonly LoggerInterface $logger,
         private readonly MessageBusInterface $bus,
+        private readonly Connection $connection,
     ) {
     }
 
@@ -27,6 +29,8 @@ final class DemoLogController extends AbstractController
     #[Route('/demo/sync', name: 'app_demo_sync', methods: ['POST'])]
     public function sync(): RedirectResponse
     {
+        $this->connection->fetchOne('SELECT 1');
+
         $this->logger->info('Sync test log', ['source' => 'sync']);
 
         $this->addFlash('success', 'Sync log emitted.');

@@ -29,6 +29,12 @@ final class LogHubHandler extends AbstractProcessingHandler
 
     protected function write(MonologLogRecord $record): void
     {
+        // Doctrine logs this on every connection open; it's pure noise (never a query),
+        // unlike "Executing statement" on the same channel, which is worth shipping.
+        if ('doctrine' === $record->channel && str_starts_with($record->message, 'Connecting with parameters')) {
+            return;
+        }
+
         try {
             $mapped = $this->mapper->map($record);
 
