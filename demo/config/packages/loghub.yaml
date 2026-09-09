@@ -4,3 +4,4 @@ loghub:
     service:
         name: 'demo-app'
     environment: '%kernel.environment%'
+    level: debug

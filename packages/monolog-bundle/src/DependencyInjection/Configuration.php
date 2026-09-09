@@ -20,6 +20,7 @@ final class Configuration implements ConfigurationInterface
                 ->scalarNode('api_key')->isRequired()->cannotBeEmpty()->end()
                 ->scalarNode('environment')->defaultValue('%kernel.environment%')->end()
                 ->floatNode('timeout')->defaultValue(0.5)->end()
+                ->scalarNode('level')->defaultValue('info')->end()
                 ->booleanNode('short_class_names')->defaultTrue()->end()
                 ->arrayNode('service')
                     ->addDefaultsIfNotSet()

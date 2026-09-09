@@ -53,6 +53,7 @@ return static function (ContainerConfigurator $container): void {
 
     $services->set(LogHubHandler::class)
         ->arg('$enrichers', tagged_iterator('loghub.enricher'))
+        ->arg('$level', '%loghub.level%')
         ->public();
 
     $services->alias('loghub.monolog_handler', LogHubHandler::class)->public();
