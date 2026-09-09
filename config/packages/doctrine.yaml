@@ -2,6 +2,17 @@ doctrine:
     dbal:
         url: '%env(resolve:DATABASE_URL)%'
         profiling_collect_backtrace: '%kernel.debug%'
+    orm:
+        validate_xml_mapping: true
+        naming_strategy: doctrine.orm.naming_strategy.underscore_number_aware
+        auto_mapping: false
+        mappings:
+            Project:
+                type: attribute
+                is_bundle: false
+                dir: '%kernel.project_dir%/src/Project/Infrastructure'
+                prefix: 'App\Project\Infrastructure'
+                alias: Project
 
 when@test:
     doctrine:

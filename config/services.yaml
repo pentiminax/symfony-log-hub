@@ -21,3 +21,11 @@ services:
 
     # add more service definitions when explicit configuration is needed
     # please note that last definitions always *replace* previous ones
+
+when@test:
+    services:
+        # Diagnostic-only controller (tests/Security/WhoAmIController.php) used to exercise
+        # the /api/v1/* firewall in functional tests; never registered outside the test env.
+        App\Tests\Security\WhoAmIController:
+            autowire: true
+            autoconfigure: true
