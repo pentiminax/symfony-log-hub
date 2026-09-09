@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use LogHub\MonologBundle\Buffer\LogBuffer;
+use LogHub\MonologBundle\EventListener\FlushOnTerminateListener;
 use LogHub\MonologBundle\Enricher\RequestAttributesEnricher;
 use LogHub\MonologBundle\Enricher\ResourceAttributesEnricher;
 use LogHub\MonologBundle\Handler\LogHubHandler;
@@ -50,4 +51,6 @@ return static function (ContainerConfigurator $container): void {
         ->public();
 
     $services->alias('loghub.monolog_handler', LogHubHandler::class)->public();
+
+    $services->set(FlushOnTerminateListener::class);
 };
