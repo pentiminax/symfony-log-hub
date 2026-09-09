@@ -51,6 +51,7 @@
                     <th scope="col" class="w-48 px-4 py-2 font-medium sm:px-6">Time</th>
                     <th scope="col" class="w-24 px-2 py-2 font-medium">Level</th>
                     <th scope="col" class="w-40 px-2 py-2 font-medium">Service</th>
+                    <th scope="col" class="w-32 px-2 py-2 font-medium">Channel</th>
                     <th scope="col" class="px-2 py-2 font-medium">Message</th>
                     {% for column in columns %}
                         <th scope="col" class="w-40 px-2 py-2 font-medium">
@@ -88,6 +89,9 @@
                         <td class="max-w-40 truncate px-2 py-0 text-ink-muted" title="{{ record.resource.get('service.name') }}">
                             {{ record.resource.get('service.name') ?? '—' }}
                         </td>
+                        <td class="max-w-32 truncate px-2 py-0 text-ink-muted" title="{{ record.channel }}">
+                            {{ record.channel ?? '—' }}
+                        </td>
                         <td class="max-w-0 py-0 pr-4 pl-2">
                             <span class="block truncate font-mono text-ink">{{ record.message }}</span>
                         </td>
@@ -100,7 +104,7 @@
                     </tr>
                 {% else %}
                     <tr>
-                        <td colspan="{{ 4 + columns|length }}" class="px-6 py-16">
+                        <td colspan="{{ 5 + columns|length }}" class="px-6 py-16">
                             {% if not this.error %}
                                 <div class="mx-auto flex max-w-sm flex-col items-center gap-2 text-center">
                                     <span class="flex size-10 items-center justify-center rounded-full bg-sunken text-ink-faint">

@@ -32,7 +32,7 @@ final class LogExplorer
     use DefaultActionTrait;
 
     /** Facets offered as dropdowns, in the order the header renders them. */
-    private const array FACETS = ['service.name' => 'service', 'environment' => 'env'];
+    private const array FACETS = ['service.name' => 'service', 'environment' => 'env', 'channel' => 'channel'];
 
     // Nullable, not empty-string: http_build_query keeps an empty string but drops
     // a null, and an unset filter has no business showing up in a shared link.
@@ -59,6 +59,9 @@ final class LogExplorer
 
     #[LiveProp(writable: true, url: true)]
     public ?string $env = null;
+
+    #[LiveProp(writable: true, url: true)]
+    public ?string $channel = null;
 
     /**
      * Ad-hoc filters added from a cell or from the drawer.
@@ -130,6 +133,7 @@ final class LogExplorer
         $this->level = null;
         $this->service = null;
         $this->env = null;
+        $this->channel = null;
     }
 
     #[LiveAction]
@@ -280,7 +284,8 @@ final class LogExplorer
         return [] !== $this->f
             || '' !== ($this->level ?? '')
             || '' !== ($this->service ?? '')
-            || '' !== ($this->env ?? '');
+            || '' !== ($this->env ?? '')
+            || '' !== ($this->channel ?? '');
     }
 
     /** The record behind `?log=`, or null when the id is bogus or already purged. */

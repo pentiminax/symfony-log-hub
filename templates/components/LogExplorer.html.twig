@@ -70,13 +70,15 @@
             {% endfor %}
         </select>
 
-        {% for field, prop in { 'service.name': 'service', 'environment': 'env' } %}
+        {% set facet_labels = { 'service': 'Service', 'env': 'Environment', 'channel': 'Channel' } %}
+        {% set facet_current = { 'service': service, 'env': env, 'channel': channel } %}
+        {% for field, prop in { 'service.name': 'service', 'environment': 'env', 'channel': 'channel' } %}
             {% set values = this.facetValues(field) %}
-            {% set current = prop == 'service' ? service : env %}
-            <label class="sr-only" for="lh-{{ prop }}">{{ prop == 'service' ? 'Service' : 'Environment' }}</label>
+            {% set current = facet_current[prop] %}
+            <label class="sr-only" for="lh-{{ prop }}">{{ facet_labels[prop] }}</label>
             <select id="lh-{{ prop }}" class="lh-control pr-1.5 {{ current ? 'border-accent-line bg-accent-tint' }}"
                     data-model="{{ prop }}" {{ values is empty and not current ? 'disabled' }}>
-                <option value="">All {{ prop == 'service' ? 'services' : 'environments' }}</option>
+                <option value="">All {{ facet_labels[prop] }}s</option>
                 {% for value in values %}
                     <option value="{{ value }}" {{ value == current ? 'selected' }}>{{ value }}</option>
                 {% endfor %}
