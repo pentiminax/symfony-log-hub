@@ -30,4 +30,12 @@ final readonly class DoctrineProjectRepository implements ProjectRepositoryInter
     {
         return $this->entityManager->find(ProjectEntity::class, (string) $id)?->toDomain();
     }
+
+    public function findAll(): array
+    {
+        $entities = $this->entityManager->getRepository(ProjectEntity::class)
+            ->findBy([], ['name' => 'ASC']);
+
+        return array_map(static fn (ProjectEntity $entity): Project => $entity->toDomain(), $entities);
+    }
 }

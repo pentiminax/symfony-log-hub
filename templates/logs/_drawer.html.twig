@@ -1,0 +1,144 @@
+{% import '_icons.html.twig' as ui %}
+{% import 'logs/_row.html.twig' as kv %}
+
+{#
+    Detail view as a <dialog>, not a page: the question the engineer built up in the
+    header stays on screen behind the scrim, and showModal() brings the focus trap
+    and Escape handling that 07.19 asks for without a line of JavaScript.
+#}
+{% if requested %}
+    <dialog {{ stimulus_controller('dialog') }}
+            data-action="dialog:closed->live#action" data-live-action-param="closeLog"
+            class="lh-drawer m-0 ml-auto h-dvh max-h-dvh w-full max-w-none border-l border-line bg-surface p-0
+                   text-ink backdrop:bg-rail/25 sm:w-[46rem] sm:max-w-[92vw]">
+
+        {% if record is null %}
+            <div class="flex h-full flex-col items-center justify-center gap-3 px-8 text-center">
+                <span class="flex size-10 items-center justify-center rounded-full bg-sunken text-ink-faint">
+                    {{ ui.icon('inbox', 'size-5') }}
+                </span>
+                <p class="text-md font-medium">This log is no longer available</p>
+                <p class="max-w-xs text-body text-ink-muted">
+                    It may have been removed by retention, or it belongs to another project.
+                </p>
+                <button type="button" class="lh-button lh-button-quiet mt-1"
+                        data-action="live#action" data-live-action-param="closeLog">Close</button>
+            </div>
+        {% else %}
+            <div class="flex h-full flex-col" {{ stimulus_controller('tabs') }}>
+
+                {# --- Head ------------------------------------------------------ #}
+                <div class="flex items-start gap-3 border-b border-line px-5 py-4">
+                    <span class="lh-severity {{ level.badgeClass }} mt-0.5 shrink-0">
+                        <span class="lh-severity-dot {{ level.dotClass }}"></span>{{ level.label }}
+                    </span>
+                    <div class="min-w-0 flex-1">
+                        <p class="font-mono text-md break-words text-ink">{{ record.message }}</p>
+                        <p class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-micro text-ink-muted">
+                            <time class="tnum" datetime="{{ record.timestamp|date('c') }}">
+                                {{ record.timestamp|date('M d, Y H:i:s') }}.{{ record.timestamp|date('u') }}
+                            </time>
+                            {% if record.channel %}<span class="font-mono">{{ record.channel }}</span>{% endif %}
+                        </p>
+                    </div>
+                    <button type="button" class="lh-button lh-button-quiet shrink-0 px-2"
+                            data-action="live#action" data-live-action-param="closeLog">
+                        {{ ui.icon('close') }}<span class="sr-only">Close</span>
+                    </button>
+                </div>
+
+                {# --- Tabs ------------------------------------------------------- #}
+                <div class="overflow-x-auto border-b border-line px-3">
+                    <div class="flex gap-1" role="tablist" aria-label="Log details">
+                        {% for key, label in {
+                            overview: 'Overview', attributes: 'Attributes', resource: 'Resource',
+                            exception: 'Exception', trace: 'Trace', raw: 'Raw JSON',
+                        } %}
+                            <button type="button" role="tab" id="lh-tab-{{ key }}" class="lh-tab"
+                                    aria-controls="lh-panel-{{ key }}"
+                                    aria-selected="{{ loop.first ? 'true' : 'false' }}"
+                                    tabindex="{{ loop.first ? '0' : '-1' }}"
+                                    data-tabs-target="tab" data-action="tabs#select keydown->tabs#navigate">
+                                {{ label }}
+                            </button>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                {# --- Panels ----------------------------------------------------- #}
+                <div class="min-h-0 flex-1 overflow-y-auto">
+                    <div role="tabpanel" id="lh-panel-overview" aria-labelledby="lh-tab-overview" data-tabs-target="panel">
+                        {{ kv.detail('timestamp', record.timestamp|date('Y-m-d H:i:s.u P')) }}
+                        {{ kv.detail('severity.text', record.severity.text, 'severity.text') }}
+                        {{ kv.detail('severity.number', record.severity.number) }}
+                        {{ kv.detail('message', record.message) }}
+                        {{ kv.detail('channel', record.channel ?? '—', record.channel ? 'channel' : null) }}
+                        {{ kv.detail('service.name', record.resource.get('service.name') ?? '—', 'service.name') }}
+                        {{ kv.detail('environment', record.resource.get('environment') ?? '—', 'environment') }}
+                        {{ kv.detail('log.id', record.id) }}
+                    </div>
+
+                    <div role="tabpanel" id="lh-panel-attributes" aria-labelledby="lh-tab-attributes" data-tabs-target="panel" hidden>
+                        {% for key, value in record.attributes.toArray %}
+                            {{ kv.detail(key, value is iterable ? value|json_encode : value, 'attributes.' ~ key) }}
+                        {% else %}
+                            <p class="px-5 py-8 text-center text-body text-ink-muted">No attributes on this log.</p>
+                        {% endfor %}
+                    </div>
+
+                    <div role="tabpanel" id="lh-panel-resource" aria-labelledby="lh-tab-resource" data-tabs-target="panel" hidden>
+                        {% for key, value in record.resource.toArray %}
+                            {{ kv.detail(key, value is iterable ? value|json_encode : value, 'resource.' ~ key) }}
+                        {% else %}
+                            <p class="px-5 py-8 text-center text-body text-ink-muted">No resource attributes on this log.</p>
+                        {% endfor %}
+                    </div>
+
+                    <div role="tabpanel" id="lh-panel-exception" aria-labelledby="lh-tab-exception" data-tabs-target="panel" hidden>
+                        {% if record.exception %}
+                            {{ kv.detail('exception.type', record.exception.type, 'exception.type') }}
+                            {{ kv.detail('exception.message', record.exception.message) }}
+                            {% if record.exception.stacktrace %}
+                                <div class="px-5 py-3">
+                                    <div class="mb-1.5 flex items-center justify-between">
+                                        <span class="font-mono text-micro text-ink-muted">exception.stacktrace</span>
+                                        <button type="button" class="lh-row-action"
+                                                {{ stimulus_controller('clipboard', { text: record.exception.stacktrace }) }}
+                                                data-action="clipboard#copy">
+                                            {{ ui.icon('copy', 'size-3.5') }} Copy
+                                        </button>
+                                    </div>
+                                    <pre class="max-h-96 overflow-auto rounded-control bg-sunken p-3 font-mono text-micro leading-relaxed text-ink-muted">{{ record.exception.stacktrace }}</pre>
+                                </div>
+                            {% endif %}
+                        {% else %}
+                            <p class="px-5 py-8 text-center text-body text-ink-muted">This log carries no exception.</p>
+                        {% endif %}
+                    </div>
+
+                    <div role="tabpanel" id="lh-panel-trace" aria-labelledby="lh-tab-trace" data-tabs-target="panel" hidden>
+                        {% if record.trace %}
+                            {{ kv.detail('trace.id', record.trace.traceId, 'trace.id') }}
+                            {{ kv.detail('span.id', record.trace.spanId, 'span.id') }}
+                        {% else %}
+                            <p class="px-5 py-8 text-center text-body text-ink-muted">This log is not part of a trace.</p>
+                        {% endif %}
+                    </div>
+
+                    <div role="tabpanel" id="lh-panel-raw" aria-labelledby="lh-tab-raw" data-tabs-target="panel" hidden>
+                        <div class="px-5 py-3">
+                            <div class="mb-1.5 flex justify-end">
+                                <button type="button" class="lh-row-action"
+                                        {{ stimulus_controller('clipboard', { text: raw }) }}
+                                        data-action="clipboard#copy">
+                                    {{ ui.icon('copy', 'size-3.5') }} Copy JSON
+                                </button>
+                            </div>
+                            <pre class="overflow-auto rounded-control bg-sunken p-3 font-mono text-micro leading-relaxed text-ink-muted">{{ raw }}</pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+    </dialog>
+{% endif %}

@@ -1,0 +1,54 @@
+{% extends 'base.html.twig' %}
+{% import '_icons.html.twig' as ui %}
+
+{% block title %}Sign in · LogHub{% endblock %}
+
+{% block body %}
+<main class="flex min-h-dvh flex-col items-center justify-center px-4 py-10">
+    <div class="w-full max-w-[22rem]">
+        <div class="mb-6 flex items-center gap-2.5">
+            <span class="flex size-8 items-center justify-center rounded-md bg-rail text-rail-ink-strong">
+                {{ ui.icon('logs', 'size-[18px]') }}
+            </span>
+            <span class="text-xl font-semibold tracking-tight">LogHub</span>
+        </div>
+
+        <form method="post" class="lh-panel p-5">
+            <h1 class="text-md font-semibold">Sign in</h1>
+            <p class="mt-1 text-body text-ink-muted">Explore your application logs.</p>
+
+            {% if error %}
+                <p role="alert" class="mt-4 flex items-start gap-2 rounded-control bg-error-tint px-2.5 py-2 text-body text-error-ink">
+                    {{ ui.icon('alert', 'mt-0.5 size-4 shrink-0') }}
+                    <span>{{ error.messageKey|trans(error.messageData, 'security') }}</span>
+                </p>
+            {% endif %}
+
+            {% if no_users_yet %}
+                <div class="mt-4 rounded-control bg-sunken px-2.5 py-2 text-body text-ink-muted">
+                    No account exists yet. Create the first one on the server:
+                    <code class="mt-1.5 block font-mono text-micro text-ink">php bin/console app:user:create you@example.com</code>
+                </div>
+            {% endif %}
+
+            <div class="mt-5 space-y-3.5">
+                <div>
+                    <label for="login-email" class="mb-1.5 block text-label font-medium text-ink-muted">Email</label>
+                    <input id="login-email" type="email" name="_username" value="{{ last_username }}"
+                           class="lh-input" required autofocus autocomplete="username" spellcheck="false">
+                </div>
+
+                <div>
+                    <label for="login-password" class="mb-1.5 block text-label font-medium text-ink-muted">Password</label>
+                    <input id="login-password" type="password" name="_password"
+                           class="lh-input" required autocomplete="current-password">
+                </div>
+            </div>
+
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token('authenticate') }}">
+
+            <button type="submit" class="lh-button lh-button-primary mt-5 w-full">Sign in</button>
+        </form>
+    </div>
+</main>
+{% endblock %}

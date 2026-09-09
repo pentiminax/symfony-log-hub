@@ -41,6 +41,16 @@ final class DoctrineProjectRepositoryTest extends KernelTestCase
         self::assertNull($this->repository->findById(ProjectId::generate()));
     }
 
+    public function testFindAllReturnsEveryProjectSortedByName(): void
+    {
+        $this->repository->save(Project::create('shipping'));
+        $this->repository->save(Project::create('billing'));
+
+        $names = array_map(static fn (Project $project): string => $project->name, $this->repository->findAll());
+
+        self::assertSame(['billing', 'shipping'], $names);
+    }
+
     public function testSaveUpdatesAnExistingProject(): void
     {
         $project = Project::create('checkout');

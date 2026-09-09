@@ -1,0 +1,144 @@
+{% import '_icons.html.twig' as ui %}
+
+{#
+    Auto-refresh only on page 1. Page 2 is a stable historical slice keyed on a
+    cursor: re-running it would show the same rows forever while new ones pile up
+    ahead of it, so the poll is simply not rendered there.
+#}
+<div {{ attributes.defaults({ class: 'flex min-h-0 flex-col' }) }}
+     {% if refreshMs > 0 and not this.hasPreviousPage %}data-poll="delay({{ refreshMs }})|$render"{% endif %}>
+
+    {# --- Counter and sort ------------------------------------------------- #}
+    <div class="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 sm:px-6">
+        <p class="text-body text-ink-muted" aria-live="polite">
+            {% if this.error %}
+                &mdash;
+            {% else %}
+                <span class="tnum font-medium text-ink">{{ this.total|number_format(0, '.', ' ') }}{{ this.totalCapped ? '+' }}</span>
+                {{ this.total == 1 and not this.totalCapped ? 'log' : 'logs' }}
+                {% if this.pageNumber > 1 %}
+                    <span class="text-ink-faint">&middot; page <span class="tnum">{{ this.pageNumber }}</span></span>
+                {% endif %}
+            {% endif %}
+        </p>
+
+        <div class="flex items-center gap-2">
+            <span data-loading="delay(200)|show" class="text-micro text-ink-faint">Updating&hellip;</span>
+
+            <button type="button" class="lh-control text-ink-muted"
+                    data-action="live#emitUp" data-live-event-param="sort:toggle"
+                    title="Sort by time, {{ sort == 'desc' ? 'newest' : 'oldest' }} first">
+                {{ ui.icon(sort == 'desc' ? 'chevron-down' : 'chevron-up', 'size-3.5') }}
+                <span>{{ sort == 'desc' ? 'Newest' : 'Oldest' }}</span>
+            </button>
+        </div>
+    </div>
+
+    {# --- Error ------------------------------------------------------------- #}
+    {% if this.error %}
+        <div class="mx-4 mb-3 flex items-start gap-2.5 rounded-panel bg-error-tint px-3 py-2.5 text-body text-error-ink sm:mx-6"
+             role="alert">
+            {{ ui.icon('alert', 'mt-px size-4 shrink-0') }}
+            <span>{{ this.error }}</span>
+        </div>
+    {% endif %}
+
+    {# --- Table -------------------------------------------------------------- #}
+    <div class="min-h-0 flex-1 overflow-x-auto border-t border-line">
+        <table class="w-full min-w-3xl border-collapse text-body">
+            <thead class="sticky top-0 z-10 bg-canvas/95 backdrop-blur">
+                <tr class="border-b border-line text-left text-label font-medium text-ink-muted">
+                    <th scope="col" class="w-48 px-4 py-2 font-medium sm:px-6">Time</th>
+                    <th scope="col" class="w-24 px-2 py-2 font-medium">Level</th>
+                    <th scope="col" class="w-40 px-2 py-2 font-medium">Service</th>
+                    <th scope="col" class="px-2 py-2 font-medium">Message</th>
+                    {% for column in columns %}
+                        <th scope="col" class="w-40 px-2 py-2 font-medium">
+                            <span class="flex items-center gap-1">
+                                <span class="truncate font-mono" title="{{ column }}">{{ column }}</span>
+                                <button type="button" class="shrink-0 rounded p-0.5 text-ink-faint hover:text-ink"
+                                        data-action="live#emitUp:stop" data-live-event-param="column:remove"
+                                        data-live-column-param="{{ column }}">
+                                    {{ ui.icon('close', 'size-3') }}
+                                    <span class="sr-only">Remove column {{ column }}</span>
+                                </button>
+                            </span>
+                        </th>
+                    {% endfor %}
+                </tr>
+            </thead>
+
+            <tbody>
+                {% for record in this.records %}
+                    {% set level = this.severityOf(record) %}
+                    <tr class="h-row cursor-pointer border-b border-line/70 align-middle transition-colors
+                               hover:bg-sunken {{ this.isSelected(record) ? 'bg-accent-tint hover:bg-accent-tint' }}"
+                        data-action="click->live#emitUp" data-live-event-param="log:open"
+                        data-live-id-param="{{ record.id }}">
+                        <td class="truncate px-4 py-0 sm:px-6">
+                            <time class="tnum text-ink-muted" datetime="{{ record.timestamp|date('c') }}">
+                                {{ record.timestamp|date('M d, H:i:s') }}<span class="text-ink-faint">.{{ record.timestamp|date('u')|slice(0, 3) }}</span>
+                            </time>
+                        </td>
+                        <td class="px-2 py-0">
+                            <span class="lh-severity {{ level.badgeClass }}">
+                                <span class="lh-severity-dot {{ level.dotClass }}"></span>{{ level.label }}
+                            </span>
+                        </td>
+                        <td class="max-w-40 truncate px-2 py-0 text-ink-muted" title="{{ record.resource.get('service.name') }}">
+                            {{ record.resource.get('service.name') ?? '—' }}
+                        </td>
+                        <td class="max-w-0 py-0 pr-4 pl-2">
+                            <span class="block truncate font-mono text-ink">{{ record.message }}</span>
+                        </td>
+                        {% for column in columns %}
+                            {% set value = this.cell(record, column) %}
+                            <td class="max-w-40 truncate px-2 py-0 font-mono text-ink-muted" title="{{ value }}">
+                                {{ value ?? '—' }}
+                            </td>
+                        {% endfor %}
+                    </tr>
+                {% else %}
+                    <tr>
+                        <td colspan="{{ 4 + columns|length }}" class="px-6 py-16">
+                            {% if not this.error %}
+                                <div class="mx-auto flex max-w-sm flex-col items-center gap-2 text-center">
+                                    <span class="flex size-10 items-center justify-center rounded-full bg-sunken text-ink-faint">
+                                        {{ ui.icon(this.rangeEmpty ? 'inbox' : 'search', 'size-5') }}
+                                    </span>
+                                    {% if this.rangeEmpty %}
+                                        <p class="text-md font-medium text-ink">No logs in this time range</p>
+                                        <p class="text-body text-ink-muted">Widen the range, or check that your application is sending logs to this project.</p>
+                                    {% else %}
+                                        <p class="text-md font-medium text-ink">No logs match your filters</p>
+                                        <p class="text-body text-ink-muted">Try removing a filter or clearing the search.</p>
+                                        <button type="button" class="lh-button lh-button-quiet mt-1"
+                                                data-action="live#emitUp" data-live-event-param="filters:clear">
+                                            Clear all filters
+                                        </button>
+                                    {% endif %}
+                                </div>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {# --- Pagination ---------------------------------------------------------- #}
+    {% if this.hasNextPage or this.hasPreviousPage %}
+        <div class="flex items-center justify-end gap-2 border-t border-line px-4 py-2.5 sm:px-6">
+            <button type="button" class="lh-button lh-button-quiet"
+                    data-action="live#action" data-live-action-param="previousPage"
+                    {{ this.hasPreviousPage ? '' : 'disabled' }}>
+                {{ ui.icon('chevron-left', 'size-3.5') }} Previous
+            </button>
+            <button type="button" class="lh-button lh-button-quiet"
+                    data-action="live#action" data-live-action-param="nextPage"
+                    {{ this.hasNextPage ? '' : 'disabled' }}>
+                Next {{ ui.icon('chevron-right', 'size-3.5') }}
+            </button>
+        </div>
+    {% endif %}
+</div>

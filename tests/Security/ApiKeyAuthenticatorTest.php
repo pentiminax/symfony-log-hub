@@ -8,10 +8,12 @@ use App\Project\Application\ApiKeyFactory;
 use App\Project\Domain\Project;
 use App\Project\Infrastructure\DoctrineApiKeyRepository;
 use App\Project\Infrastructure\DoctrineProjectRepository;
+use App\Security\User;
 use Doctrine\DBAL\Connection;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\KernelBrowser;
 use Symfony\Bundle\FrameworkBundle\Test\WebTestCase;
+use Symfony\Component\PasswordHasher\Hasher\UserPasswordHasherInterface;
 
 final class ApiKeyAuthenticatorTest extends WebTestCase
 {
@@ -77,6 +79,28 @@ final class ApiKeyAuthenticatorTest extends WebTestCase
         $this->client->request('GET', self::WHOAMI_URL, server: [
             'HTTP_AUTHORIZATION' => 'Bearer '.$generated->plaintext,
         ]);
+
+        self::assertResponseStatusCodeSame(401);
+    }
+
+    /**
+     * The two firewalls are separate identity systems and must stay that way: a
+     * human account is not a way into the ingestion API, and the API key firewall
+     * never consults the user provider.
+     */
+    public function testAHumanAccountIsNotAWayIntoTheIngestionApi(): void
+    {
+        $entityManager = self::getContainer()->get(EntityManagerInterface::class);
+        self::getContainer()->get(Connection::class)->executeStatement('TRUNCATE TABLE app_user CASCADE');
+
+        $user = new User('ops@example.com');
+        $user->password = self::getContainer()->get(UserPasswordHasherInterface::class)
+            ->hashPassword($user, 'correct-horse-battery');
+        $entityManager->persist($user);
+        $entityManager->flush();
+
+        $this->client->loginUser($user);
+        $this->client->request('GET', self::WHOAMI_URL);
 
         self::assertResponseStatusCodeSame(401);
     }

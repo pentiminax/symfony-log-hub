@@ -1,0 +1,11 @@
+{% extends 'app.html.twig' %}
+
+{% block title %}Logs · LogHub{% endblock %}
+
+{% block content %}
+    {# The transport-error controller wraps the component rather than sharing its
+       root: one element carries one data-controller, and live owns that one. #}
+    <div class="flex min-h-0 flex-1 flex-col" {{ stimulus_controller('live-error') }}>
+        <twig:LogExplorer />
+    </div>
+{% endblock %}

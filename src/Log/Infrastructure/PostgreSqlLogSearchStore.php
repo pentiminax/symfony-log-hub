@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Log\Infrastructure;
 
+use App\Log\Application\DateRange;
 use App\Log\Application\Filter;
 use App\Log\Application\FilterOperator;
 use App\Log\Application\LogCursor;
@@ -33,12 +34,34 @@ final readonly class PostgreSqlLogSearchStore implements LogSearchStoreInterface
     private const array COLUMN_FIELDS = [
         'timestamp' => 'timestamp',
         'severity' => 'severity_number',
+        'severity.text' => 'severity_text',
         'message' => 'message',
+        'channel' => 'channel',
         'service.name' => 'service_name',
         'service.version' => 'service_version',
         'environment' => 'environment',
         'host.name' => 'host_name',
         'trace.id' => 'trace_id',
+        'span.id' => 'span_id',
+    ];
+
+    /**
+     * Fields whose observed values may be enumerated. Deliberately narrow: these are
+     * low-cardinality promoted columns, so a DISTINCT over the visible window is cheap.
+     */
+    private const array FACET_FIELDS = [
+        'service.name',
+        'environment',
+        'channel',
+    ];
+
+    /**
+     * JSONB documents whose keys are addressable as `<prefix>.<path>` filter fields.
+     */
+    private const array JSON_COLUMNS = [
+        'attributes.' => 'attributes',
+        'resource.' => 'resource',
+        'exception.' => 'exception',
     ];
 
     public function __construct(private Connection $connection)
@@ -47,35 +70,17 @@ final readonly class PostgreSqlLogSearchStore implements LogSearchStoreInterface
 
     public function search(LogSearchQuery $query): LogSearchResult
     {
-        $qb = $this->connection->createQueryBuilder()
-            ->select('*')
-            ->from('log_record')
-            ->where('project_id = :projectId')
-            ->setParameter('projectId', (string) $query->projectId);
-
-        if (null !== $query->range->from) {
-            $qb->andWhere('timestamp >= :rangeFrom')
-                ->setParameter('rangeFrom', $query->range->from, Types::DATETIMETZ_IMMUTABLE);
-        }
-
-        if (null !== $query->range->to) {
-            $qb->andWhere('timestamp <= :rangeTo')
-                ->setParameter('rangeTo', $query->range->to, Types::DATETIMETZ_IMMUTABLE);
-        }
-
-        if (null !== $query->search && '' !== $query->search) {
-            $qb->andWhere("(message ILIKE :search OR (exception #>> '{message}') ILIKE :search)")
-                ->setParameter('search', '%'.addcslashes($query->search, '%_\\').'%');
-        }
-
-        foreach ($query->filters as $index => $filter) {
-            $this->applyFilter($qb, $filter, $index);
-        }
+        $qb = $this->matching($query)->select('*');
 
         if (null !== $query->pagination->cursor) {
+            if ('timestamp' !== $query->sort->field) {
+                throw new \InvalidArgumentException(sprintf('Cursor pagination requires sorting by "timestamp", got "%s".', $query->sort->field));
+            }
+
             $cursor = $query->pagination->cursor;
-            $qb->andWhere('(timestamp, id) < (:cursorTimestamp, :cursorId)')
-                ->setParameter('cursorTimestamp', $cursor->timestamp, Types::DATETIMETZ_IMMUTABLE)
+            $comparison = SortDirection::ASC === $query->sort->direction ? '>' : '<';
+            $qb->andWhere("(timestamp, id) {$comparison} (:cursorTimestamp, :cursorId)")
+                ->setParameter('cursorTimestamp', PostgreSqlTimestamp::bind($cursor->timestamp), Types::STRING)
                 ->setParameter('cursorId', (string) $cursor->id);
         }
 
@@ -98,24 +103,99 @@ final readonly class PostgreSqlLogSearchStore implements LogSearchStoreInterface
         return new LogSearchResult(new LogRecordCollection(...$records), $nextCursor, $hasMore);
     }
 
-    public function find(LogId $id): ?LogRecord
+    public function find(ProjectId $projectId, LogId $id): ?LogRecord
     {
         $row = $this->connection->createQueryBuilder()
             ->select('*')
             ->from('log_record')
             ->where('id = :id')
+            ->andWhere('project_id = :projectId')
             ->setParameter('id', (string) $id)
+            ->setParameter('projectId', (string) $projectId)
             ->executeQuery()
             ->fetchAssociative();
 
         return false === $row ? null : $this->hydrate($row);
     }
 
+    public function countUpTo(LogSearchQuery $query, int $max = 10_000): int
+    {
+        $bounded = $this->matching($query)->select('1')->setMaxResults($max);
+
+        return (int) $this->connection->fetchOne(
+            sprintf('SELECT count(*) FROM (%s) AS bounded', $bounded->getSQL()),
+            $bounded->getParameters(),
+            $bounded->getParameterTypes(),
+        );
+    }
+
+    public function distinctValues(ProjectId $projectId, string $field, DateRange $range): array
+    {
+        if (!\in_array($field, self::FACET_FIELDS, true)) {
+            throw new \InvalidArgumentException(sprintf('Field "%s" is not facetable.', $field));
+        }
+
+        $column = self::COLUMN_FIELDS[$field];
+        $qb = $this->connection->createQueryBuilder()
+            ->select("DISTINCT {$column}")
+            ->from('log_record')
+            ->where('project_id = :projectId')
+            ->andWhere("{$column} IS NOT NULL")
+            ->setParameter('projectId', (string) $projectId)
+            ->orderBy($column, 'ASC')
+            // ponytail: DISTINCT over the visible window. If it shows up in slow query
+            // logs, cache it per project+range bucket or populate the field catalog
+            // (spec 05 §5.5) on ingest.
+            ->setMaxResults(200);
+
+        $this->applyRange($qb, $range);
+
+        return array_map(strval(...), $qb->executeQuery()->fetchFirstColumn());
+    }
+
+    /**
+     * Every predicate of a search, without ordering, cursor or limit, so that a count
+     * and a page are guaranteed to describe the same result set.
+     */
+    private function matching(LogSearchQuery $query): QueryBuilder
+    {
+        $qb = $this->connection->createQueryBuilder()
+            ->from('log_record')
+            ->where('project_id = :projectId')
+            ->setParameter('projectId', (string) $query->projectId);
+
+        $this->applyRange($qb, $query->range);
+
+        if (null !== $query->search && '' !== $query->search) {
+            $qb->andWhere("(message ILIKE :search OR (exception #>> '{message}') ILIKE :search)")
+                ->setParameter('search', '%'.addcslashes($query->search, '%_\\').'%');
+        }
+
+        foreach ($query->filters as $index => $filter) {
+            $this->applyFilter($qb, $filter, $index);
+        }
+
+        return $qb;
+    }
+
+    private function applyRange(QueryBuilder $qb, DateRange $range): void
+    {
+        if (null !== $range->from) {
+            $qb->andWhere('timestamp >= :rangeFrom')
+                ->setParameter('rangeFrom', PostgreSqlTimestamp::bind($range->from), Types::STRING);
+        }
+
+        if (null !== $range->to) {
+            $qb->andWhere('timestamp <= :rangeTo')
+                ->setParameter('rangeTo', PostgreSqlTimestamp::bind($range->to), Types::STRING);
+        }
+    }
+
     private function applyFilter(QueryBuilder $qb, Filter $filter, int $index): void
     {
         $placeholder = 'filter'.$index;
         $expression = $this->resolveColumn($filter->field);
-        $isJsonPath = str_starts_with($filter->field, 'attributes.') || str_starts_with($filter->field, 'exception.');
+        $isJsonPath = $this->isJsonPath($filter->field);
 
         if (FilterOperator::EXISTS === $filter->operator) {
             $qb->andWhere("{$expression} IS NOT NULL");
@@ -132,8 +212,8 @@ final readonly class PostgreSqlLogSearchStore implements LogSearchStoreInterface
         if (FilterOperator::BETWEEN === $filter->operator) {
             $expression = $isJsonPath ? $this->cast($expression, $filter->value[0]) : $expression;
             $qb->andWhere("{$expression} BETWEEN :{$placeholder}From AND :{$placeholder}To")
-                ->setParameter("{$placeholder}From", $filter->value[0], $this->valueType($filter->value[0]))
-                ->setParameter("{$placeholder}To", $filter->value[1], $this->valueType($filter->value[1]));
+                ->setParameter("{$placeholder}From", $this->bindValue($filter->value[0]), $this->valueType($filter->value[0]))
+                ->setParameter("{$placeholder}To", $this->bindValue($filter->value[1]), $this->valueType($filter->value[1]));
 
             return;
         }
@@ -158,7 +238,7 @@ final readonly class PostgreSqlLogSearchStore implements LogSearchStoreInterface
 
         $castExpression = $isJsonPath ? $this->cast($expression, $filter->value) : $expression;
         $qb->andWhere("{$castExpression} {$sqlOperator} :{$placeholder}")
-            ->setParameter($placeholder, $filter->value, $this->valueType($filter->value));
+            ->setParameter($placeholder, $this->bindValue($filter->value), $this->valueType($filter->value));
     }
 
     /**
@@ -182,7 +262,18 @@ final readonly class PostgreSqlLogSearchStore implements LogSearchStoreInterface
 
     private function valueType(mixed $value): Types|string
     {
-        return $value instanceof \DateTimeInterface ? Types::DATETIMETZ_IMMUTABLE : (\is_bool($value) ? Types::BOOLEAN : (\is_int($value) ? Types::INTEGER : (\is_float($value) ? Types::FLOAT : Types::STRING)));
+        return match (true) {
+            \is_bool($value) => Types::BOOLEAN,
+            \is_int($value) => Types::INTEGER,
+            \is_float($value) => Types::FLOAT,
+            default => Types::STRING,
+        };
+    }
+
+    /** Dates go to the driver as microsecond strings; everything else unchanged. */
+    private function bindValue(mixed $value): mixed
+    {
+        return $value instanceof \DateTimeInterface ? PostgreSqlTimestamp::bind($value) : $value;
     }
 
     private function resolveColumn(string $field): string
@@ -191,15 +282,24 @@ final readonly class PostgreSqlLogSearchStore implements LogSearchStoreInterface
             return self::COLUMN_FIELDS[$field];
         }
 
-        if (str_starts_with($field, 'attributes.')) {
-            return $this->jsonPath('attributes', substr($field, \strlen('attributes.')));
-        }
-
-        if (str_starts_with($field, 'exception.')) {
-            return $this->jsonPath('exception', substr($field, \strlen('exception.')));
+        foreach (self::JSON_COLUMNS as $prefix => $column) {
+            if (str_starts_with($field, $prefix)) {
+                return $this->jsonPath($column, substr($field, \strlen($prefix)));
+            }
         }
 
         throw new \InvalidArgumentException(sprintf('Unknown filterable field "%s".', $field));
+    }
+
+    private function isJsonPath(string $field): bool
+    {
+        foreach (array_keys(self::JSON_COLUMNS) as $prefix) {
+            if (str_starts_with($field, $prefix)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function jsonPath(string $column, string $path): string

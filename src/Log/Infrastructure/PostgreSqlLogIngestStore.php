@@ -25,11 +25,11 @@ final readonly class PostgreSqlLogIngestStore implements LogIngestStoreInterface
         $this->connection->transactional(function (Connection $connection) use ($records): void {
             foreach ($records as $record) {
                 $connection->insert('log_record', $this->toRow($record), [
-                    'timestamp' => Types::DATETIMETZ_IMMUTABLE,
+                    'timestamp' => Types::STRING,
                     'resource' => Types::JSON,
                     'attributes' => Types::JSON,
                     'exception' => Types::JSON,
-                    'ingested_at' => Types::DATETIMETZ_IMMUTABLE,
+                    'ingested_at' => Types::STRING,
                 ]);
             }
         });
@@ -43,7 +43,7 @@ final readonly class PostgreSqlLogIngestStore implements LogIngestStoreInterface
         return [
             'id' => (string) $record->id,
             'project_id' => (string) $record->projectId,
-            'timestamp' => $record->timestamp,
+            'timestamp' => PostgreSqlTimestamp::bind($record->timestamp),
             'severity_text' => $record->severity->text,
             'severity_number' => $record->severity->number,
             'message' => $record->message,
@@ -61,7 +61,7 @@ final readonly class PostgreSqlLogIngestStore implements LogIngestStoreInterface
                 'message' => $record->exception->message,
                 'stacktrace' => $record->exception->stacktrace,
             ],
-            'ingested_at' => new \DateTimeImmutable(),
+            'ingested_at' => PostgreSqlTimestamp::bind(new \DateTimeImmutable()),
         ];
     }
 }

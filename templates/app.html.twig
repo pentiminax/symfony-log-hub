@@ -1,0 +1,79 @@
+{% extends 'base.html.twig' %}
+{% import '_icons.html.twig' as ui %}
+
+{% block body %}
+{# Exactly one viewport tall: the log table scrolls inside itself, so the page never does. #}
+<div class="flex h-dvh overflow-hidden">
+    <a href="#main" class="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50
+                           focus:rounded-control focus:bg-surface focus:px-3 focus:py-2 focus:text-body">
+        Skip to content
+    </a>
+
+    <aside class="sticky top-0 hidden h-dvh w-rail shrink-0 flex-col bg-rail md:flex">
+        <div class="flex items-center gap-2.5 px-4 py-4">
+            <span class="flex size-7 items-center justify-center rounded-md bg-accent text-accent-ink">
+                {{ ui.icon('logs', 'size-4') }}
+            </span>
+            <span class="text-md font-semibold tracking-tight text-rail-ink-strong">LogHub</span>
+        </div>
+
+        <nav class="flex flex-1 flex-col gap-0.5 px-2" aria-label="Sections">
+            <a href="{{ path('app_logs') }}" class="lh-rail-link"
+               {{ app.request.attributes.get('_route') == 'app_logs' ? 'aria-current="page"' : '' }}>
+                {{ ui.icon('logs') }} Logs
+            </a>
+            {% for item in [
+                { label: 'Projects', icon: 'projects' },
+                { label: 'API Keys', icon: 'key' },
+                { label: 'Settings', icon: 'settings' },
+            ] %}
+                <span class="lh-rail-link" aria-disabled="true" title="{{ item.label }} is not available yet">
+                    {{ ui.icon(item.icon) }}
+                    <span class="flex-1">{{ item.label }}</span>
+                    <span class="rounded-full bg-rail-raised px-1.5 py-0.5 text-micro text-rail-ink-faint">Soon</span>
+                </span>
+            {% endfor %}
+        </nav>
+
+        {% if app.user %}
+            <div class="border-t border-rail-line p-2">
+                <div class="flex items-center gap-2.5 px-1.5 py-1.5">
+                    <span class="flex size-7 shrink-0 items-center justify-center rounded-full bg-rail-active
+                                 text-micro font-semibold text-rail-ink-strong uppercase">
+                        {{ app.user.userIdentifier|slice(0, 2) }}
+                    </span>
+                    <span class="min-w-0 flex-1 truncate text-micro text-rail-ink" title="{{ app.user.userIdentifier }}">
+                        {{ app.user.userIdentifier }}
+                    </span>
+                    <a href="{{ logout_path('main') }}" class="lh-rail-link shrink-0 p-1.5" title="Sign out">
+                        {{ ui.icon('sign-out') }}
+                        <span class="sr-only">Sign out</span>
+                    </a>
+                </div>
+            </div>
+        {% endif %}
+    </aside>
+
+    <div class="flex min-w-0 flex-1 flex-col">
+        {# Below md the rail is gone, and with it the product's name and the only way
+           out. This strip is the smallest thing that gives both back. #}
+        <div class="flex items-center gap-2 bg-rail px-3 py-2 md:hidden">
+            <span class="flex size-6 items-center justify-center rounded bg-accent text-accent-ink">
+                {{ ui.icon('logs', 'size-3.5') }}
+            </span>
+            <span class="flex-1 text-body font-semibold tracking-tight text-rail-ink-strong">LogHub</span>
+            {% if app.user %}
+                <span class="truncate text-micro text-rail-ink-faint">{{ app.user.userIdentifier }}</span>
+                <a href="{{ logout_path('main') }}" class="lh-rail-link shrink-0 p-1.5" title="Sign out">
+                    {{ ui.icon('sign-out') }}
+                    <span class="sr-only">Sign out</span>
+                </a>
+            {% endif %}
+        </div>
+
+        <main id="main" class="flex min-h-0 min-w-0 flex-1 flex-col">
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+</div>
+{% endblock %}

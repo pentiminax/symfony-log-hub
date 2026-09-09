@@ -3,7 +3,13 @@ framework:
     secret: '%env(APP_SECRET)%'
 
     # Note that the session will be started ONLY if you read or write from it.
-    session: true
+    # Seven days: an on-call tool must not sign you out mid-incident, which is the
+    # only thing a remember-me cookie would have bought here.
+    session:
+        cookie_lifetime: 604800
+        gc_maxlifetime: 604800
+        cookie_secure: auto
+        cookie_samesite: lax
 
     #esi: true
     #fragments: true
