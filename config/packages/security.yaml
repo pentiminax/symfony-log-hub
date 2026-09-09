@@ -43,7 +43,9 @@ security:
         - { path: ^/login$, roles: PUBLIC_ACCESS }
         # Guarded by the `api` firewall's API key, not by user roles.
         - { path: ^/api/v1/, roles: PUBLIC_ACCESS }
-        - { path: ^/, roles: IS_AUTHENTICATED_FULLY }
+        # In dev, skip login entirely (no seeded users needed to poke at a project locally).
+        # allow_if wins over roles when both are present, so this is the only override needed.
+        - { path: ^/, roles: IS_AUTHENTICATED_FULLY, allow_if: "request.server.get('APP_ENV') == 'dev' or is_fully_authenticated()" }
 
 when@test:
     security:
