@@ -21,3 +21,13 @@ services:
 
     # add more service definitions when explicit configuration is needed
     # please note that last definitions always *replace* previous ones
+
+    # interpolates PSR-3 "{route}"-style placeholders into the message before it
+    # reaches the "loghub" handler (Monolog's own process_psr_3_messages option
+    # only applies to handlers it builds itself, not "type: service" handlers)
+    monolog.processor.psr_log_message.loghub:
+        class: Monolog\Processor\PsrLogMessageProcessor
+        arguments:
+            $removeUsedContextFields: true
+        tags:
+            - { name: monolog.processor, handler: loghub }

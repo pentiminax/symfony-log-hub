@@ -19,9 +19,6 @@ when@dev:
                 id: loghub.monolog_handler
                 level: info
                 channels: ["!http_client"]
-                process_psr_3_messages:
-                    enabled: true
-                    remove_used_context_fields: true
 
 when@test:
     monolog:
