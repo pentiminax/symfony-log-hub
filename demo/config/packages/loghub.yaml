@@ -1,0 +1,6 @@
+loghub:
+    endpoint: '%env(LOGHUB_ENDPOINT)%'
+    api_key: '%env(LOGHUB_API_KEY)%'
+    service:
+        name: 'demo-app'
+    environment: '%kernel.environment%'

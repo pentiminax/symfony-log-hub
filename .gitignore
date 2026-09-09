@@ -13,3 +13,24 @@
 /phpunit.xml
 /.phpunit.cache/
 ###< phpunit/phpunit ###
+
+
+###> symfony/framework-bundle ###
+/demo/.env.local
+/demo/.env.local.php
+/demo/.env.*.local
+/demo/config/secrets/prod/prod.decrypt.private.php
+/demo/public/bundles/
+/demo/var/
+/demo/vendor/
+###< symfony/framework-bundle ###
+
+###> phpunit/phpunit ###
+/demo/phpunit.xml
+/demo/.phpunit.cache/
+###< phpunit/phpunit ###
+
+###> symfony/asset-mapper ###
+/demo/public/assets/
+/demo/assets/vendor/
+###< symfony/asset-mapper ###
