@@ -107,6 +107,7 @@ final class LogExplorer
     }
 
     #[LiveAction]
+    #[LiveListener('filter:add')]
     public function addFilter(#[LiveArg] string $field, #[LiveArg] string $op, #[LiveArg] string $value): void
     {
         foreach ($this->f as $existing) {
@@ -123,6 +124,21 @@ final class LogExplorer
     {
         unset($this->f[$index]);
         $this->f = array_values($this->f);
+    }
+
+    /**
+     * Same removal as {@see removeFilter}, but by content rather than index: a table
+     * cell (unlike a filter chip) doesn't know its position in `$f`, only what it's
+     * showing.
+     */
+    #[LiveAction]
+    #[LiveListener('filter:remove')]
+    public function removeFilterByValue(#[LiveArg] string $field, #[LiveArg] string $op, #[LiveArg] string $value): void
+    {
+        $this->f = array_values(array_filter(
+            $this->f,
+            static fn (array $existing): bool => $existing['field'] !== $field || $existing['op'] !== $op || $existing['value'] !== $value,
+        ));
     }
 
     #[LiveAction]

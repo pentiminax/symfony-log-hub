@@ -72,7 +72,7 @@
             <tbody>
                 {% for record in this.records %}
                     {% set level = this.severityOf(record) %}
-                    <tr class="h-row cursor-pointer border-b border-line/70 align-middle transition-colors
+                    <tr class="group h-row cursor-pointer border-b border-line/70 align-middle transition-colors
                                hover:bg-sunken {{ this.isSelected(record) ? 'bg-accent-tint hover:bg-accent-tint' }}"
                         data-action="click->live#emitUp" data-live-event-param="log:open"
                         data-live-id-param="{{ record.id }}">
@@ -92,8 +92,26 @@
                         <td class="max-w-32 truncate px-2 py-0 text-ink-muted" title="{{ record.channel }}">
                             {{ record.channel ?? '—' }}
                         </td>
+                        {% set message_filtered = false %}
+                        {% for filter in filters %}
+                            {% if filter.field == 'message' and filter.op == 'equals' and filter.value == record.message %}
+                                {% set message_filtered = true %}
+                            {% endif %}
+                        {% endfor %}
                         <td class="max-w-0 py-0 pr-4 pl-2">
-                            <span class="block truncate font-mono text-ink">{{ record.message }}</span>
+                            <span class="flex min-w-0 items-center gap-1">
+                                <span class="block min-w-0 flex-1 truncate font-mono text-ink">{{ record.message }}</span>
+                                <button type="button"
+                                        class="lh-row-action shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+                                        title="{{ message_filtered ? 'Remove filter' : 'Filter for this value' }}"
+                                        data-action="live#emitUp:stop"
+                                        data-live-event-param="{{ message_filtered ? 'filter:remove' : 'filter:add' }}"
+                                        data-live-field-param="message" data-live-op-param="equals"
+                                        data-live-value-param="{{ record.message }}">
+                                    {{ ui.icon(message_filtered ? 'minus' : 'plus', 'size-3.5') }}
+                                    <span class="sr-only">{{ message_filtered ? 'Remove filter' : 'Filter for this value' }}</span>
+                                </button>
+                            </span>
                         </td>
                         {% for column in columns %}
                             {% set value = this.cell(record, column) %}
