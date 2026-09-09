@@ -6,6 +6,7 @@ use LogHub\MonologBundle\Buffer\LogBuffer;
 use LogHub\MonologBundle\EventListener\FlushOnTerminateListener;
 use LogHub\MonologBundle\Enricher\RequestAttributesEnricher;
 use LogHub\MonologBundle\Enricher\ResourceAttributesEnricher;
+use LogHub\MonologBundle\Enricher\ShortClassNameEnricher;
 use LogHub\MonologBundle\Handler\LogHubHandler;
 use LogHub\MonologBundle\Mapper\MonologRecordMapper;
 use LogHub\MonologBundle\Redaction\AttributeRedactor;
@@ -33,6 +34,10 @@ return static function (ContainerConfigurator $container): void {
         ->tag('loghub.enricher');
 
     $services->set(RequestAttributesEnricher::class)
+        ->tag('loghub.enricher');
+
+    $services->set(ShortClassNameEnricher::class)
+        ->arg('$enabled', '%loghub.short_class_names%')
         ->tag('loghub.enricher');
 
     $services->set(HttpBatchTransport::class)

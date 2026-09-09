@@ -1488,6 +1488,7 @@ use Symfony\Component\Config\Loader\ParamConfigurator as Param;
  *     api_key?: scalar|Param|null,
  *     environment?: scalar|Param|null, // Default: "%kernel.environment%"
  *     timeout?: float|Param, // Default: 0.5
+ *     short_class_names?: bool|Param, // Default: true
  *     service?: array{
  *         name?: scalar|Param|null,
  *         version?: scalar|Param|null, // Default: null

@@ -29,6 +29,7 @@ final class LogHubMonologExtension extends Extension
         $container->setParameter('loghub.api_key', $config['api_key']);
         $container->setParameter('loghub.environment', $config['environment']);
         $container->setParameter('loghub.timeout', $config['timeout']);
+        $container->setParameter('loghub.short_class_names', $config['short_class_names']);
         $container->setParameter('loghub.service_name', $config['service']['name']);
         $container->setParameter('loghub.service_version', $config['service']['version']);
         $container->setParameter('loghub.batch_max_records', $config['batch']['max_records']);
