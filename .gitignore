@@ -34,3 +34,5 @@
 /demo/public/assets/
 /demo/assets/vendor/
 ###< symfony/asset-mapper ###
+
+/.idea/

@@ -20,7 +20,46 @@ services:
       # - ./docker/db/data:/var/lib/postgresql/data:rw
 ###< doctrine/doctrine-bundle ###
 
+  # LogHub engine (Rust): ingestion, storage and search. Owns its own database.
+  engine_database:
+    image: postgres:${POSTGRES_VERSION:-16}-alpine
+    environment:
+      POSTGRES_DB: engine
+      POSTGRES_USER: engine
+      POSTGRES_PASSWORD: ${ENGINE_POSTGRES_PASSWORD:-engine}
+    healthcheck:
+      test: ["CMD", "pg_isready", "-d", "engine", "-U", "engine"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - engine_database_data:/var/lib/postgresql/data:rw
+
+  engine:
+    build: ./engine
+    restart: unless-stopped
+    depends_on:
+      engine_database:
+        condition: service_healthy
+    environment:
+      # Dev defaults only: set real values in .env.local / the deployment environment.
+      MASTER_KEY: ${ENGINE_MASTER_KEY:-dev-master-key-change-me}
+      DATABASE_URL: postgres://engine:${ENGINE_POSTGRES_PASSWORD:-engine}@engine_database:5432/engine
+      INGEST_LISTEN_ADDR: 0.0.0.0:8080
+      INTERNAL_LISTEN_ADDR: 0.0.0.0:8081
+      RETENTION_DAYS: ${ENGINE_RETENTION_DAYS:-14}
+      LOGHUB_MAX_REQUEST_BYTES: ${LOGHUB_MAX_REQUEST_BYTES:-1000000}
+      LOGHUB_MAX_BATCH_RECORDS: ${LOGHUB_MAX_BATCH_RECORDS:-100}
+      LOGHUB_MAX_MESSAGE_BYTES: ${LOGHUB_MAX_MESSAGE_BYTES:-102400}
+      LOGHUB_MAX_ATTRIBUTES_BYTES: ${LOGHUB_MAX_ATTRIBUTES_BYTES:-65536}
+      LOGHUB_MAX_STACKTRACE_BYTES: ${LOGHUB_MAX_STACKTRACE_BYTES:-65536}
+      LOGHUB_MAX_NESTING_DEPTH: ${LOGHUB_MAX_NESTING_DEPTH:-5}
+    ports:
+      - "8080:8080" # public ingestion
+      - "127.0.0.1:8081:8081" # internal search/admin: never expose publicly
+
 volumes:
 ###> doctrine/doctrine-bundle ###
   database_data:
 ###< doctrine/doctrine-bundle ###
+  engine_database_data:
