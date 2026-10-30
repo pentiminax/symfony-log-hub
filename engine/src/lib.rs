@@ -6,9 +6,11 @@ pub mod auth;
 pub mod config;
 pub mod error;
 pub mod ingest;
+pub mod otlp;
 pub mod record;
 pub mod retention;
 pub mod search;
+pub mod traces;
 
 use axum::{
     Json, Router,
@@ -61,6 +63,7 @@ pub async fn migrate(pool: &PgPool) -> Result<(), sqlx::migrate::MigrateError> {
 pub fn ingest_router(state: AppState) -> Router {
     Router::new()
         .route("/api/v1/logs", post(ingest::ingest))
+        .route("/v1/traces", post(otlp::export))
         .with_state(state)
 }
 
@@ -87,6 +90,11 @@ pub fn internal_router(state: AppState) -> Router {
             get(search::facet),
         )
         .route("/projects/{project_id}/logs/{log_id}", get(search::find))
+        .route("/projects/{project_id}/traces/search", post(traces::search))
+        .route(
+            "/projects/{project_id}/traces/{trace_id}",
+            get(traces::find),
+        )
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             auth::require_master_key,

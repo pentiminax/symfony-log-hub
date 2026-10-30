@@ -37,13 +37,14 @@ const JSON_COLUMNS: [(&str, &str); 3] = [
 const FACETS: [&str; 3] = ["service.name", "environment", "channel"];
 
 #[derive(Clone, Copy)]
-enum Kind {
+pub(crate) enum Kind {
     Text,
     Int,
+    Long,
     Timestamp,
 }
 
-enum Target {
+pub(crate) enum Target {
     Column(&'static str, Kind),
     Json(&'static str, Vec<String>),
 }
@@ -67,7 +68,7 @@ enum Operator {
 }
 
 #[derive(Deserialize)]
-struct Filter {
+pub(crate) struct Filter {
     field: String,
     operator: Operator,
     #[serde(default)]
@@ -75,7 +76,7 @@ struct Filter {
 }
 
 #[derive(Deserialize, Default)]
-struct Range {
+pub(crate) struct Range {
     from: Option<DateTime<Utc>>,
     to: Option<DateTime<Utc>>,
 }
@@ -185,7 +186,7 @@ impl LogRow {
     }
 }
 
-fn invalid(msg: impl Into<String>) -> ApiError {
+pub(crate) fn invalid(msg: impl Into<String>) -> ApiError {
     ApiError::Invalid(msg.into())
 }
 
@@ -208,16 +209,16 @@ fn resolve(field: &str) -> Result<Target, ApiError> {
     Err(invalid(format!("Unknown filterable field \"{field}\".")))
 }
 
-fn push_range(qb: &mut QueryBuilder<'_, Postgres>, range: &Range) {
+pub(crate) fn push_range(qb: &mut QueryBuilder<'_, Postgres>, range: &Range, col: &str) {
     if let Some(from) = range.from {
-        qb.push(" AND \"timestamp\" >= ").push_bind(from);
+        qb.push(format_args!(" AND {col} >= ")).push_bind(from);
     }
     if let Some(to) = range.to {
-        qb.push(" AND \"timestamp\" <= ").push_bind(to);
+        qb.push(format_args!(" AND {col} <= ")).push_bind(to);
     }
 }
 
-fn check_range(range: &Range) -> Result<(), ApiError> {
+pub(crate) fn check_range(range: &Range) -> Result<(), ApiError> {
     match (range.from, range.to) {
         (Some(f), Some(t)) if f > t => Err(invalid("range.from must not be after range.to")),
         _ => Ok(()),
@@ -233,7 +234,7 @@ fn push_matching(
 ) -> Result<(), ApiError> {
     check_range(&q.range)?;
     qb.push(" WHERE project_id = ").push_bind(project_id);
-    push_range(qb, &q.range);
+    push_range(qb, &q.range, "\"timestamp\"");
     if let Some(search) = q.search.as_deref().filter(|s| !s.is_empty()) {
         let pattern = like_pattern(search);
         qb.push(" AND (message ILIKE ")
@@ -243,7 +244,7 @@ fn push_matching(
             .push(")");
     }
     for f in &q.filters {
-        push_filter(qb, f)?;
+        push_filter(qb, f, resolve)?;
     }
     Ok(())
 }
@@ -297,6 +298,11 @@ fn push_cmp(
             qb.push(*col).push(format_args!(" {sql_op} "));
             match kind {
                 Kind::Text => qb.push_bind(scalar_string(v)?),
+                Kind::Long => qb.push_bind(
+                    scalar_string(v)?
+                        .parse::<i64>()
+                        .map_err(|_| invalid("filter value must be an integer"))?,
+                ),
                 Kind::Int => qb.push_bind(
                     scalar_string(v)?
                         .parse::<i16>()
@@ -334,7 +340,11 @@ fn push_cmp(
     Ok(())
 }
 
-fn push_filter(qb: &mut QueryBuilder<'_, Postgres>, f: &Filter) -> Result<(), ApiError> {
+pub(crate) fn push_filter(
+    qb: &mut QueryBuilder<'_, Postgres>,
+    f: &Filter,
+    resolve: fn(&str) -> Result<Target, ApiError>,
+) -> Result<(), ApiError> {
     let target = resolve(&f.field)?;
     qb.push(" AND ");
     let value = || {
@@ -352,7 +362,10 @@ fn push_filter(qb: &mut QueryBuilder<'_, Postgres>, f: &Filter) -> Result<(), Ap
             });
         }
         Operator::Contains | Operator::NotContains => {
-            if matches!(target, Target::Column(_, Kind::Int | Kind::Timestamp)) {
+            if matches!(
+                target,
+                Target::Column(_, Kind::Int | Kind::Long | Kind::Timestamp)
+            ) {
                 return Err(invalid(format!(
                     "contains is not supported on \"{}\"",
                     f.field
@@ -481,7 +494,7 @@ pub async fn facet(
     ));
     qb.push_bind(project_id)
         .push(format_args!(" AND {col} IS NOT NULL"));
-    push_range(&mut qb, &range);
+    push_range(&mut qb, &range, "\"timestamp\"");
     qb.push(format_args!(" ORDER BY {col} ASC LIMIT {FACET_LIMIT}"));
     let values: Vec<String> = qb.build_query_scalar().fetch_all(&s.pool).await?;
     Ok(Json(json!({"values": values})))

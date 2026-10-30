@@ -29,5 +29,8 @@ when@test:
             public: true
         App\Tests\Fake\InMemoryProjectRepository:
             public: true
+        App\Tests\Fake\InMemoryTraceSearchStore:
+            public: true
         App\Log\Application\LogSearchStoreInterface: '@App\Tests\Fake\InMemoryLogSearchStore'
         App\Project\Application\ProjectRepositoryInterface: '@App\Tests\Fake\InMemoryProjectRepository'
+        App\Trace\Application\TraceSearchStoreInterface: '@App\Tests\Fake\InMemoryTraceSearchStore'

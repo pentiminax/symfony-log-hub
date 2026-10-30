@@ -8,7 +8,7 @@ Two listeners:
 
 | Listener | Env | Default | Serves |
 |---|---|---|---|
-| public ingestion | `INGEST_LISTEN_ADDR` | `0.0.0.0:8080` | `POST /api/v1/logs` |
+| public ingestion | `INGEST_LISTEN_ADDR` | `0.0.0.0:8080` | `POST /api/v1/logs`, `POST /v1/traces` (OTLP) |
 | internal | `INTERNAL_LISTEN_ADDR` | `0.0.0.0:8081` | `GET /health`, everything under `/v1` |
 
 Never expose the internal port publicly.
@@ -19,8 +19,8 @@ Never expose the internal port publicly.
 |---|---|---|
 | `MASTER_KEY` | required, >= 16 chars | `Authorization: Bearer` secret for `/v1` |
 | `DATABASE_URL` | required | engine's dedicated Postgres |
-| `RETENTION_DAYS` | `14` | logs older than this (by `timestamp`) are deleted, at startup then daily |
-| `LOGHUB_MAX_REQUEST_BYTES` | `1000000` | -> 413 |
+| `RETENTION_DAYS` | `14` | logs (by `timestamp`) and spans (by `start_time`) older than this are deleted, at startup then daily |
+| `LOGHUB_MAX_REQUEST_BYTES` | `1000000` | -> 413 (OTLP: also applies to the decompressed gzip body) |
 | `LOGHUB_MAX_BATCH_RECORDS` | `100` | -> 422 |
 | `LOGHUB_MAX_MESSAGE_BYTES` / `_ATTRIBUTES_BYTES` / `_STACKTRACE_BYTES` / `_NESTING_DEPTH` | `102400` / `65536` / `65536` / `5` | per-record rejection |
 | `RUST_LOG` | `info` | |
@@ -55,6 +55,59 @@ revoked key), `413 {"error":"request_too_large","max_bytes"}`, `422 {"error":"to
 `400` invalid JSON, `422` if `records` is not an array, `503` when the database is unavailable (retry).
 Optional `trace_id` (<= 32 chars) and `span_id` (<= 16) are stored. The environment column is read from
 `resource["deployment.environment.name"]` (what the bundle sends), falling back to `resource.environment`.
+
+## OTLP trace ingestion (public port)
+
+`POST /v1/traces` on port 8080, so `OTEL_EXPORTER_OTLP_ENDPOINT=http://host:8080` plus
+`OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer lh_...` works with any OTLP/HTTP exporter
+(`OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf`).
+
+- Body: `application/x-protobuf` `ExportTraceServiceRequest`. **`application/json` (OTLP/JSON) is not
+  supported: 415.** `Content-Encoding: gzip` (or `identity`) is supported; the decompressed size is also
+  capped by `LOGHUB_MAX_REQUEST_BYTES` (413).
+- `200` with a protobuf `ExportTraceServiceResponse`; spans rejected for an invalid trace/span/parent id
+  (all-zero or wrong length), empty name, missing start time or end < start are counted in
+  `partial_success.rejected_spans` (+ `error_message` of the first one), the valid ones are stored.
+  Errors use the JSON error shape: `400` undecodable body/gzip, `401 invalid_api_key`, `413`, `415`, `503`.
+- One transaction per request, `ON CONFLICT (project_id, trace_id, span_id) DO NOTHING`: exporter retries
+  are idempotent (the first copy of a span wins).
+- Stored: ids as lowercase hex, kind (`internal|server|client|producer|consumer|unspecified`), start/end
+  (timestamptz = microseconds) and `duration_ns` (exact, from the nanos), status (`unset|ok|error`) +
+  message, `service.name` (default `unknown_service`), environment (`deployment.environment.name`, else
+  `environment`, else `deployment.environment`), scope name/version, resource and span attributes as flat
+  JSON maps (keys keep their dots; bytes as base64), events `[{name, timestamp, attributes}]`.
+  **Span links are dropped.**
+
+### Trace search (internal API)
+
+`POST /v1/projects/{id}/traces/search`
+```json
+{"range": {"from": null, "to": null},
+ "filters": [{"field": "attributes.http.response.status_code", "operator": "greater_than_or_equal", "value": 500}],
+ "limit": 50, "cursor": {"start_time": "2026-09-05T10:00:00Z", "trace_id": "<32 hex>"}}
+```
+Response: `{"traces": [{"trace_id","root":{"span_id","name","service_name"}|null,"start_time","duration_ns",
+"span_count","error_count","services":[...]}], "next_cursor": {...}|null, "has_more": bool}`.
+
+- A trace matches when **at least one span** with `start_time` in `range` matches **all** filters. The row
+  then summarises **all stored spans of the trace** (also those outside the range): `start_time` = earliest
+  span start, `duration_ns` = latest end - earliest start (microsecond precision), counts over all spans.
+  `root` is the earliest span without a parent (`null` if none arrived). Ordered by trace start desc,
+  keyset on `(start_time, trace_id)`; `limit` 1..=200 (default 50).
+- Same operators and 422 rules as log search. Fields: `service.name`, `name`, `kind`, `status` (text),
+  `duration` (ns, integer), `environment`, `trace.id`, `attributes.<key>`, `resource.<key>`. Because OTel
+  keys contain dots and attributes are stored flat, everything after `attributes.`/`resource.` is **one
+  key** (`attributes.http.request.method`); nested (kvlist) values are not filterable.
+- No facets endpoint for traces.
+
+`GET /v1/projects/{id}/traces/{trace_id}` -> `{"trace_id","spans":[Span]}` ordered by start (404 if the
+project has no such trace; max 10000 spans):
+```json
+Span = {"trace_id","span_id","parent_span_id"|null,"name","kind","start_time","end_time","duration_ns",
+        "status":{"code":"unset|ok|error","message"},"service_name","environment",
+        "scope":{"name","version"},"resource":{...},"attributes":{...},
+        "events":[{"name","timestamp","attributes":{...}}]}
+```
 
 ## Internal API (`Authorization: Bearer <MASTER_KEY>`, else `401 {"error":"unauthorized"}`)
 
@@ -116,6 +169,9 @@ ignored) -> `{"count": n}` saturating at `max`.
 `GET /v1/projects/{id}/logs/{log_id}` -> `find`: a Log or 404 (never crosses projects).
 
 ## Schema notes
+
+`migrations/0002_spans.sql`: `spans` (PK `(project_id, trace_id, span_id)`, promoted columns + JSONB), indexes
+for project/time listing, root spans, service filter and the retention purge.
 
 `migrations/0001_init.sql`: `projects`, `api_keys` (unique hashed key), `logs` (promoted columns + JSONB
 `resource`/`attributes`/`exception`). Indexes: `(project_id, timestamp DESC, id DESC)`, severity / service /

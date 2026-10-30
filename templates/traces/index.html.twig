@@ -1,0 +1,104 @@
+{% extends 'app.html.twig' %}
+{% import '_icons.html.twig' as ui %}
+
+{% block title %}Traces · LogHub{% endblock %}
+
+{% block content %}
+<div class="flex min-h-0 flex-1 flex-col overflow-y-auto">
+    <header class="px-4 pt-4 pb-3 sm:px-6">
+        <form method="get" action="{{ path('app_traces') }}" class="flex flex-wrap items-center gap-3">
+            <h1 class="mr-auto text-lg font-semibold tracking-tight">Traces</h1>
+
+            {% if projects|length > 1 %}
+                <label class="sr-only" for="lh-project">Project</label>
+                <select id="lh-project" name="project" class="lh-control pr-1.5">
+                    {% for item in projects %}
+                        <option value="{{ item.id }}" {{ project and item.id == project.id ? 'selected' }}>{{ item.name }}</option>
+                    {% endfor %}
+                </select>
+            {% elseif project %}
+                <span class="lh-control cursor-default text-ink-muted">{{ ui.icon('projects', 'size-3.5') }} {{ project.name }}</span>
+            {% endif %}
+
+            <label class="sr-only" for="lh-range">Time range</label>
+            <select id="lh-range" name="range" class="lh-control pr-1.5">
+                {% for preset in presets %}
+                    <option value="{{ preset.value }}" {{ preset == range ? 'selected' }}>{{ preset.label }}</option>
+                {% endfor %}
+            </select>
+
+            <label class="sr-only" for="lh-service">Service</label>
+            <input id="lh-service" type="search" name="service" value="{{ service }}" placeholder="Service name" class="lh-control">
+
+            <label class="lh-control gap-1.5">
+                <input type="checkbox" name="errors" value="1" {{ errorsOnly ? 'checked' }}> Errors only
+            </label>
+
+            <button type="submit" class="lh-button">Apply</button>
+        </form>
+    </header>
+
+    {% if not project %}
+        <p class="px-6 py-10 text-center text-body text-ink-muted">No project yet. Create one, then point an OTLP exporter at its API key.</p>
+    {% elseif error %}
+        <div class="mx-4 mb-3 flex items-start gap-2.5 rounded-panel bg-error-tint px-3 py-2.5 text-body text-error-ink sm:mx-6" role="alert">
+            {{ ui.icon('alert', 'mt-px size-4 shrink-0') }}<span>{{ error }}</span>
+        </div>
+    {% elseif result.traces is empty %}
+        <p class="px-6 py-10 text-center text-body text-ink-muted">
+            No traces {{ paged ? 'on this page' : 'in this time range' }}.
+            {% if not paged %}Send spans to <code class="font-mono">POST /v1/traces</code> with this project's API key.{% endif %}
+        </p>
+    {% else %}
+        <div class="overflow-x-auto border-t border-line">
+            <table class="w-full min-w-3xl border-collapse text-body">
+                <caption class="sr-only">Traces, most recent first</caption>
+                <thead class="bg-canvas/95">
+                    <tr class="border-b border-line text-left text-label font-medium text-ink-muted">
+                        <th scope="col" class="px-4 py-2 font-medium sm:px-6">Root span</th>
+                        <th scope="col" class="px-2 py-2 font-medium">Services</th>
+                        <th scope="col" class="w-48 px-2 py-2 font-medium">Start</th>
+                        <th scope="col" class="w-28 px-2 py-2 text-right font-medium">Duration</th>
+                        <th scope="col" class="w-20 px-2 py-2 text-right font-medium">Spans</th>
+                        <th scope="col" class="w-24 px-4 py-2 font-medium sm:px-6">Errors</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for t in result.traces %}
+                        <tr class="border-b border-line hover:bg-sunken">
+                            <th scope="row" class="px-4 py-2 text-left font-normal sm:px-6">
+                                <a class="font-mono text-accent underline" href="{{ path('app_trace_show', { traceId: t.id ~ '', project: project.id ~ '' }) }}">
+                                    {{ t.rootName ?? '(root span missing)' }}
+                                </a>
+                            </th>
+                            <td class="px-2 py-2 text-ink-muted">{{ t.services|join(', ') }}</td>
+                            <td class="tnum px-2 py-2 text-ink-muted">
+                                <time datetime="{{ t.start|date('c') }}">{{ t.start|date('M d, H:i:s') }}.{{ t.start|date('v') }}</time>
+                            </td>
+                            <td class="tnum px-2 py-2 text-right">{{ include('traces/_duration.html.twig', { ns: t.durationNs }) }}</td>
+                            <td class="tnum px-2 py-2 text-right">{{ t.spanCount }}</td>
+                            <td class="px-4 py-2 sm:px-6">
+                                {% if t.errorCount > 0 %}
+                                    <span class="lh-severity bg-error-tint text-error-ink">{{ t.errorCount }} error{{ t.errorCount > 1 ? 's' }}</span>
+                                {% else %}
+                                    <span class="text-ink-faint">&mdash;</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <nav class="flex items-center gap-3 px-4 py-3 sm:px-6" aria-label="Pagination">
+            {% set base = { project: project.id ~ '', range: range.value, service: service ?: null, errors: errorsOnly ? 1 : null } %}
+            {% if paged %}
+                <a class="lh-button lh-button-quiet" href="{{ path('app_traces', base) }}">First page</a>
+            {% endif %}
+            {% if nextCursor %}
+                <a class="lh-button" rel="next" href="{{ path('app_traces', base|merge({ cursor: nextCursor })) }}">Older traces</a>
+            {% endif %}
+        </nav>
+    {% endif %}
+</div>
+{% endblock %}

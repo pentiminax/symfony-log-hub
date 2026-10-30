@@ -98,6 +98,27 @@ final readonly class EngineClient
         return $this->request('GET', $this->logsPath($projectId).'/'.rawurlencode($logId), notFoundIsNull: true);
     }
 
+    /**
+     * @param array<string, mixed> $body engine trace search request (range, filters, limit, cursor)
+     *
+     * @return array{traces: list<array<string, mixed>>, next_cursor: array{start_time: string, trace_id: string}|null, has_more: bool}
+     */
+    public function searchTraces(string $projectId, array $body): array
+    {
+        return $this->request('POST', $this->tracesPath($projectId).'/search', ['json' => (object) $body]);
+    }
+
+    /** @return array{trace_id: string, spans: list<array<string, mixed>>}|null */
+    public function getTrace(string $projectId, string $traceId): ?array
+    {
+        return $this->request('GET', $this->tracesPath($projectId).'/'.rawurlencode($traceId), notFoundIsNull: true);
+    }
+
+    private function tracesPath(string $projectId): string
+    {
+        return '/v1/projects/'.rawurlencode($projectId).'/traces';
+    }
+
     private function keysPath(string $projectId): string
     {
         return '/v1/projects/'.rawurlencode($projectId).'/keys';

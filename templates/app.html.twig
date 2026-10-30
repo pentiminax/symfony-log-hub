@@ -22,6 +22,10 @@
                {{ app.request.attributes.get('_route') == 'app_logs' ? 'aria-current="page"' : '' }}>
                 {{ ui.icon('logs') }} Logs
             </a>
+            <a href="{{ path('app_traces') }}" class="lh-rail-link"
+               {{ app.request.attributes.get('_route') in ['app_traces', 'app_trace_show'] ? 'aria-current="page"' : '' }}>
+                {{ ui.icon('traces') }} Traces
+            </a>
             {% for item in [
                 { label: 'Projects', icon: 'projects' },
                 { label: 'API Keys', icon: 'key' },

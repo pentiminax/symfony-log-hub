@@ -120,6 +120,9 @@
                         {% if record.trace %}
                             {{ kv.detail('trace.id', record.trace.traceId, 'trace.id') }}
                             {{ kv.detail('span.id', record.trace.spanId, 'span.id') }}
+                            <p class="px-5 py-3">
+                                <a class="text-accent underline" href="{{ path('app_trace_show', { traceId: record.trace.traceId, project: record.projectId ~ '' }) }}">View this trace</a>
+                            </p>
                         {% else %}
                             <p class="px-5 py-8 text-center text-body text-ink-muted">This log is not part of a trace.</p>
                         {% endif %}

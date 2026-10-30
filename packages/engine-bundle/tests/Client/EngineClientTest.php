@@ -102,6 +102,23 @@ final class EngineClientTest extends TestCase
         $this->assertRequest(0, 'GET', 'http://engine/v1/projects/p-1/logs/l-1');
     }
 
+    public function testSearchTraces(): void
+    {
+        $response = ['traces' => [], 'next_cursor' => null, 'has_more' => false];
+
+        self::assertSame($response, $this->client($this->json($response))->searchTraces('p-1', ['limit' => 5]));
+        $this->assertRequest(0, 'POST', 'http://engine/v1/projects/p-1/traces/search', '{"limit":5}');
+    }
+
+    public function testGetTraceReturnsNullOn404(): void
+    {
+        $client = $this->client($this->json(['trace_id' => 't-1', 'spans' => []]), $this->json(['error' => 'not_found'], 404));
+
+        self::assertSame(['trace_id' => 't-1', 'spans' => []], $client->getTrace('p-1', 't-1'));
+        self::assertNull($client->getTrace('p-1', 't-2'));
+        $this->assertRequest(0, 'GET', 'http://engine/v1/projects/p-1/traces/t-1');
+    }
+
     public function testHealth(): void
     {
         self::assertSame('ok', $this->client($this->json(['status' => 'ok']))->health()['status']);
