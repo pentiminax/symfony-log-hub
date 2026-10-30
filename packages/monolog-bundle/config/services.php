@@ -7,6 +7,7 @@ use LogHub\MonologBundle\EventListener\FlushOnTerminateListener;
 use LogHub\MonologBundle\Enricher\RequestAttributesEnricher;
 use LogHub\MonologBundle\Enricher\ResourceAttributesEnricher;
 use LogHub\MonologBundle\Enricher\ShortClassNameEnricher;
+use LogHub\MonologBundle\Enricher\TraceContextEnricher;
 use LogHub\MonologBundle\Handler\LogHubHandler;
 use LogHub\MonologBundle\Mapper\MonologRecordMapper;
 use LogHub\MonologBundle\Redaction\AttributeRedactor;
@@ -39,6 +40,11 @@ return static function (ContainerConfigurator $container): void {
     $services->set(ShortClassNameEnricher::class)
         ->arg('$enabled', '%loghub.short_class_names%')
         ->tag('loghub.enricher');
+
+    if (interface_exists(\OpenTelemetry\API\Trace\SpanInterface::class)) {
+        $services->set(TraceContextEnricher::class)
+            ->tag('loghub.enricher');
+    }
 
     $services->set(HttpBatchTransport::class)
         ->arg('$endpoint', '%loghub.endpoint%')

@@ -64,6 +64,21 @@ final readonly class LogRecord implements \JsonSerializable
         );
     }
 
+    public function withTrace(string $traceId, string $spanId): self
+    {
+        return new self(
+            $this->timestamp,
+            $this->severity,
+            $this->message,
+            $this->channel,
+            $this->resource,
+            $this->attributes,
+            $traceId,
+            $spanId,
+            $this->exception,
+        );
+    }
+
     public function jsonSerialize(): array
     {
         return [

@@ -6,6 +6,7 @@ namespace LogHub\MonologBundle\Tests\DependencyInjection;
 
 use LogHub\MonologBundle\DependencyInjection\LogHubMonologExtension;
 use LogHub\MonologBundle\Handler\LogHubHandler;
+use LogHub\MonologBundle\Enricher\TraceContextEnricher;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\ParameterBag\ParameterBag;
@@ -66,5 +67,19 @@ final class LogHubMonologExtensionTest extends TestCase
         self::assertSame('1.4.2', $container->getParameter('loghub.service_version'));
         self::assertSame(50, $container->getParameter('loghub.batch_max_records'));
         self::assertSame(2000, $container->getParameter('loghub.batch_max_bytes'));
+    }
+
+    public function testTraceContextEnricherIsRegisteredAndTagged(): void
+    {
+        $container = new ContainerBuilder(new ParameterBag(['kernel.environment' => 'test']));
+        // Not compiled: compilation would inline/remove the enricher definition.
+        (new LogHubMonologExtension())->load([[
+            'endpoint' => 'https://loghub.example/api/v1/logs',
+            'api_key' => 'lh_secret',
+            'service' => ['name' => 'billing-api'],
+        ]], $container);
+
+        self::assertTrue($container->hasDefinition(TraceContextEnricher::class));
+        self::assertArrayHasKey('loghub.enricher', $container->getDefinition(TraceContextEnricher::class)->getTags());
     }
 }
