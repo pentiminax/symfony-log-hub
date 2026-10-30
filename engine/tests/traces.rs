@@ -3,7 +3,7 @@
 
 use std::io::Write;
 
-use loghub_engine::{AppState, config::Limits, ingest_router, internal_router, retention};
+use loghub_engine::{AppState, config::Limits, retention, router};
 use opentelemetry_proto::tonic::{
     collector::trace::v1::{ExportTraceServiceRequest, ExportTraceServiceResponse},
     common::v1::{AnyValue, ArrayValue, KeyValue, any_value::Value as Av},
@@ -22,23 +22,19 @@ const T0: u64 = 1_788_602_400_000_000_000;
 const MS: u64 = 1_000_000;
 
 struct App {
-    ingest: String,
-    internal: String,
+    base: String,
     pool: PgPool,
     http: Client,
 }
 
 async fn app_with(pool: PgPool, limits: Limits) -> App {
     let state = AppState::new(pool.clone(), limits, MASTER);
-    let serve = |router: axum::Router| async move {
-        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = l.local_addr().unwrap();
-        tokio::spawn(async move { axum::serve(l, router).await });
-        format!("http://{addr}")
-    };
+    let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", l.local_addr().unwrap());
+    let app = router(state);
+    tokio::spawn(async move { axum::serve(l, app).await });
     App {
-        ingest: serve(ingest_router(state.clone())).await,
-        internal: serve(internal_router(state)).await,
+        base,
         pool,
         http: Client::new(),
     }
@@ -52,7 +48,7 @@ impl App {
     async fn admin(&self, method: Method, path: &str, body: Option<Value>) -> (StatusCode, Value) {
         let mut req = self
             .http
-            .request(method, format!("{}{path}", self.internal))
+            .request(method, format!("{}{path}", self.base))
             .bearer_auth(MASTER);
         if let Some(b) = body {
             req = req.json(&b);
@@ -85,7 +81,7 @@ impl App {
     ) -> reqwest::Response {
         let mut req = self
             .http
-            .post(format!("{}/v1/traces", self.ingest))
+            .post(format!("{}/v1/traces", self.base))
             .header("content-type", content_type)
             .body(body);
         if let Some(k) = key {
@@ -555,26 +551,22 @@ async fn trace_detail_and_project_isolation(pool: PgPool) {
     let r1 = app.search(&p1, json!({})).await;
     assert_eq!(r1["traces"].as_array().unwrap().len(), 1);
     assert_eq!(r1["traces"][0]["root"]["name"], "mine");
-    // Internal API needs the master key; the public port does not serve it.
+    // The query API needs the master key; a project key is not one.
     let res = app
         .http
-        .get(format!(
-            "{}/v1/projects/{p1}/traces/{}",
-            app.internal,
-            tid(1)
-        ))
+        .get(format!("{}/v1/projects/{p1}/traces/{}", app.base, tid(1)))
         .send()
         .await
         .unwrap();
     assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
     let res = app
         .http
-        .get(format!("{}/v1/projects/{p1}/traces/{}", app.ingest, tid(1)))
-        .bearer_auth(MASTER)
+        .get(format!("{}/v1/projects/{p1}/traces/{}", app.base, tid(1)))
+        .bearer_auth(&k1)
         .send()
         .await
         .unwrap();
-    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
 }
 
 #[sqlx::test]

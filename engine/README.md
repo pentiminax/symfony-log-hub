@@ -4,20 +4,40 @@ Standalone Rust service that owns LogHub's log storage, ingestion and search on 
 PostgreSQL database**. Projects and ingestion API keys live here; the master key protects
 the admin/search API. Migrations are embedded (`sqlx::migrate!`) and run at startup.
 
-Two listeners:
+One listener (`LISTEN_ADDR`, default `0.0.0.0:8080`) serves everything, with auth per route:
 
-| Listener | Env | Default | Serves |
-|---|---|---|---|
-| public ingestion | `INGEST_LISTEN_ADDR` | `0.0.0.0:8080` | `POST /api/v1/logs`, `POST /v1/traces` (OTLP) |
-| internal | `INTERNAL_LISTEN_ADDR` | `0.0.0.0:8081` | `GET /health`, everything under `/v1` |
+| Routes | Auth |
+|---|---|
+| `POST /api/v1/logs`, `POST /v1/traces` (OTLP) | project key `Bearer lh_...` |
+| `/v1/projects/...` (admin, search) | `Bearer <MASTER_KEY>` |
+| `GET /health` | none |
+| everything else (`GET`) | none: the web UI (SPA, falls back to `index.html`) |
 
-Never expose the internal port publicly.
+Unknown paths under `/v1`, `/api` and `/health` return a JSON `404`, never the UI.
+
+## Web UI
+
+React + Vite + TypeScript SPA in `ui/` (React Router, TanStack Query, Tailwind v4), embedded into the
+binary with `rust-embed` from `ui/dist`. Sign in with the master key (kept in `localStorage`, sent as
+`Bearer` on every `/v1` call; a `401` signs you out). Pages: projects, API keys (plaintext shown once),
+placeholders for logs and traces.
+
+```sh
+cd ui && npm install
+npm run dev        # Vite on :5173, proxies /v1, /api, /health to http://127.0.0.1:8080
+npm run typecheck
+npm run build      # -> ui/dist, embedded at the next cargo build
+```
+
+Without `ui/dist` the binary still builds (so `cargo test`/clippy need no Node); `/` then shows
+"UI not built". The Dockerfile builds the UI in a Node stage.
 
 ## Configuration
 
 | Env | Default | |
 |---|---|---|
-| `MASTER_KEY` | required, >= 16 chars | `Authorization: Bearer` secret for `/v1` |
+| `LISTEN_ADDR` | `0.0.0.0:8080` | the single HTTP listener |
+| `MASTER_KEY` | required, >= 16 chars | `Authorization: Bearer` secret for `/v1/projects/...` and the UI login |
 | `DATABASE_URL` | required | engine's dedicated Postgres |
 | `RETENTION_DAYS` | `14` | logs (by `timestamp`) and spans (by `start_time`) older than this are deleted, at startup then daily |
 | `LOGHUB_MAX_REQUEST_BYTES` | `1000000` | -> 413 (OTLP: also applies to the decompressed gzip body) |
@@ -36,7 +56,7 @@ Never expose the internal port publicly.
 ./cargo.sh fmt --check
 
 # tests need a real Postgres: start the engine DB, then join its network namespace
-docker compose up -d --wait engine_database     # from the repo root
+docker compose -f ../compose.yaml up -d --wait engine_database
 DOCKER_ARGS="--network container:$(docker compose -f ../compose.yaml ps -q engine_database) \
   -e DATABASE_URL=postgres://engine:engine@localhost:5432/engine" ./cargo.sh test
 ```
@@ -46,7 +66,7 @@ DOCKER_ARGS="--network container:$(docker compose -f ../compose.yaml ps -q engin
 Run the service: `docker compose up -d --build engine` (from the repo root; dev defaults in
 `compose.yaml`, override with `ENGINE_MASTER_KEY`, `ENGINE_POSTGRES_PASSWORD`).
 
-## Ingestion API (public port)
+## Ingestion API
 
 `POST /api/v1/logs`, `Authorization: Bearer lh_<64 hex>`, body `{"records": [...]}`: identical
 contract to the former PHP endpoint (spec 04). `202 {"accepted","rejected","errors":[{"index","reason"}]}`
@@ -56,9 +76,9 @@ revoked key), `413 {"error":"request_too_large","max_bytes"}`, `422 {"error":"to
 Optional `trace_id` (<= 32 chars) and `span_id` (<= 16) are stored. The environment column is read from
 `resource["deployment.environment.name"]` (what the bundle sends), falling back to `resource.environment`.
 
-## OTLP trace ingestion (public port)
+## OTLP trace ingestion
 
-`POST /v1/traces` on port 8080, so `OTEL_EXPORTER_OTLP_ENDPOINT=http://host:8080` plus
+`POST /v1/traces` on the same port, so `OTEL_EXPORTER_OTLP_ENDPOINT=http://host:8080` plus
 `OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer lh_...` works with any OTLP/HTTP exporter
 (`OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf`).
 
@@ -78,7 +98,7 @@ Optional `trace_id` (<= 32 chars) and `span_id` (<= 16) are stored. The environm
   JSON maps (keys keep their dots; bytes as base64), events `[{name, timestamp, attributes}]`.
   **Span links are dropped.**
 
-### Trace search (internal API)
+### Trace search (admin API)
 
 `POST /v1/projects/{id}/traces/search`
 ```json
@@ -109,7 +129,7 @@ Span = {"trace_id","span_id","parent_span_id"|null,"name","kind","start_time","e
         "events":[{"name","timestamp","attributes":{...}}]}
 ```
 
-## Internal API (`Authorization: Bearer <MASTER_KEY>`, else `401 {"error":"unauthorized"}`)
+## Admin API (`Authorization: Bearer <MASTER_KEY>`, else `401 {"error":"unauthorized"}`)
 
 Errors: `{"error": code, "message"?}` with 400 (bad JSON/path), 404, 422 (invalid request), 503/500 (storage).
 

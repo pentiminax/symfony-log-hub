@@ -3,7 +3,7 @@
 //! migrated database and drops it when the test passes.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use loghub_engine::{AppState, config::Limits, ingest_router, internal_router, retention};
+use loghub_engine::{AppState, config::Limits, retention, router};
 use reqwest::{Client, Method, StatusCode};
 use serde_json::{Value, json};
 use sqlx::PgPool;
@@ -11,8 +11,7 @@ use sqlx::PgPool;
 const MASTER: &str = "test-master-key-0123456789";
 
 struct App {
-    ingest: String,
-    internal: String,
+    base: String,
     pool: PgPool,
     http: Client,
 }
@@ -23,15 +22,12 @@ async fn app(pool: PgPool) -> App {
 
 async fn app_with(pool: PgPool, limits: Limits) -> App {
     let state = AppState::new(pool.clone(), limits, MASTER);
-    let serve = |router: axum::Router| async move {
-        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = l.local_addr().unwrap();
-        tokio::spawn(async move { axum::serve(l, router).await });
-        format!("http://{addr}")
-    };
+    let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", l.local_addr().unwrap());
+    let app = router(state);
+    tokio::spawn(async move { axum::serve(l, app).await });
     App {
-        ingest: serve(ingest_router(state.clone())).await,
-        internal: serve(internal_router(state)).await,
+        base,
         pool,
         http: Client::new(),
     }
@@ -41,7 +37,7 @@ impl App {
     async fn admin(&self, method: Method, path: &str, body: Option<Value>) -> (StatusCode, Value) {
         let mut req = self
             .http
-            .request(method, format!("{}{path}", self.internal))
+            .request(method, format!("{}{path}", self.base))
             .bearer_auth(MASTER);
         if let Some(b) = body {
             req = req.json(&b);
@@ -69,7 +65,7 @@ impl App {
     async fn post_logs(&self, key: Option<&str>, body: Value) -> (StatusCode, Value) {
         let mut req = self
             .http
-            .post(format!("{}/api/v1/logs", self.ingest))
+            .post(format!("{}/api/v1/logs", self.base))
             .json(&body);
         if let Some(k) = key {
             req = req.bearer_auth(k);
@@ -145,7 +141,7 @@ async fn health_reports_status_and_version(pool: PgPool) {
     let app = app(pool).await;
     let res = app
         .http
-        .get(format!("{}/health", app.internal))
+        .get(format!("{}/health", app.base))
         .send()
         .await
         .unwrap();
@@ -160,7 +156,7 @@ async fn health_reports_status_and_version(pool: PgPool) {
 #[sqlx::test]
 async fn admin_rejects_missing_or_wrong_master_key(pool: PgPool) {
     let app = app(pool).await;
-    let url = format!("{}/v1/projects", app.internal);
+    let url = format!("{}/v1/projects", app.base);
     assert_eq!(
         app.http.get(&url).send().await.unwrap().status(),
         StatusCode::UNAUTHORIZED
@@ -193,11 +189,74 @@ async fn admin_rejects_missing_or_wrong_master_key(pool: PgPool) {
             .status(),
         StatusCode::OK
     );
-    // The ingestion port exposes nothing but ingestion.
+    // A project key is not a master key.
+    let (_, key) = app.project().await;
+    let res = app.http.get(&url).bearer_auth(key).send().await.unwrap();
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[sqlx::test]
+async fn master_key_does_not_ingest(pool: PgPool) {
+    let app = app(pool).await;
+    let (s, v) = app.post_logs(Some(MASTER), json!({"records": []})).await;
+    assert_eq!(s, StatusCode::UNAUTHORIZED);
+    assert_eq!(v["error"], "invalid_api_key");
+}
+
+#[sqlx::test]
+async fn otlp_route_uses_project_key_not_master_layer(pool: PgPool) {
+    let app = app(pool).await;
+    let (_, key) = app.project().await;
+    let post = |token: &str| {
+        app.http
+            .post(format!("{}/v1/traces", app.base))
+            .header("content-type", "application/x-protobuf")
+            .bearer_auth(token.to_owned())
+            .send()
+    };
+    // An empty protobuf body is a valid, empty export request.
+    assert_eq!(post(&key).await.unwrap().status(), StatusCode::OK);
+    let res = post(MASTER).await.unwrap();
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        res.json::<Value>().await.unwrap()["error"],
+        "invalid_api_key"
+    );
+}
+
+#[sqlx::test]
+async fn unknown_api_paths_are_json_404_and_spa_paths_are_html(pool: PgPool) {
+    let app = app(pool).await;
+    for path in ["/v1/nope", "/api/nope", "/health/x"] {
+        let res = app
+            .http
+            .get(format!("{}{path}", app.base))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::NOT_FOUND, "{path}");
+        assert_eq!(res.json::<Value>().await.unwrap()["error"], "not_found");
+    }
+    for path in ["/", "/projects/abc"] {
+        let res = app
+            .http
+            .get(format!("{}{path}", app.base))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK, "{path}");
+        assert!(
+            res.headers()["content-type"]
+                .to_str()
+                .unwrap()
+                .starts_with("text/html")
+        );
+        assert!(res.text().await.unwrap().contains("<html"));
+    }
+    // A missing hashed asset must 404, not fall back to index.html.
     let res = app
         .http
-        .get(format!("{}/v1/projects", app.ingest))
-        .bearer_auth(MASTER)
+        .get(format!("{}/assets/missing-0000.js", app.base))
         .send()
         .await
         .unwrap();
@@ -322,7 +381,7 @@ async fn ingestion_rejects_missing_or_unknown_keys(pool: PgPool) {
     }
     let res = app
         .http
-        .post(format!("{}/api/v1/logs", app.ingest))
+        .post(format!("{}/api/v1/logs", app.base))
         .header("Authorization", "lh_x")
         .json(&body)
         .send()
@@ -421,7 +480,7 @@ async fn ingestion_enforces_request_and_batch_limits(pool: PgPool) {
 
     let res = app
         .http
-        .post(format!("{}/api/v1/logs", app.ingest))
+        .post(format!("{}/api/v1/logs", app.base))
         .bearer_auth(&key)
         .body("{oops")
         .send()

@@ -32,8 +32,7 @@ impl Default for Limits {
 pub struct Config {
     pub master_key: String,
     pub database_url: String,
-    pub ingest_addr: SocketAddr,
-    pub internal_addr: SocketAddr,
+    pub listen_addr: SocketAddr,
     pub retention_days: u32,
     pub limits: Limits,
 }
@@ -50,14 +49,7 @@ impl Config {
         Ok(Self {
             master_key,
             database_url: required("DATABASE_URL")?,
-            ingest_addr: optional(
-                "INGEST_LISTEN_ADDR",
-                "0.0.0.0:8080".parse().map_err(addr_err)?,
-            )?,
-            internal_addr: optional(
-                "INTERNAL_LISTEN_ADDR",
-                "0.0.0.0:8081".parse().map_err(addr_err)?,
-            )?,
+            listen_addr: optional("LISTEN_ADDR", "0.0.0.0:8080".parse().map_err(addr_err)?)?,
             retention_days: optional("RETENTION_DAYS", 14)?,
             limits: Limits {
                 max_request_bytes: optional("LOGHUB_MAX_REQUEST_BYTES", d.max_request_bytes)?,

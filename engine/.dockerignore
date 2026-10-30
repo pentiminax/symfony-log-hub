@@ -1,3 +1,5 @@
 target
 tests
 README.md
+ui/node_modules
+ui/dist

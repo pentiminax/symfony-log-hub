@@ -45,8 +45,7 @@ services:
       # Dev defaults only: set real values in .env.local / the deployment environment.
       MASTER_KEY: ${ENGINE_MASTER_KEY:-dev-master-key-change-me}
       DATABASE_URL: postgres://engine:${ENGINE_POSTGRES_PASSWORD:-engine}@engine_database:5432/engine
-      INGEST_LISTEN_ADDR: 0.0.0.0:8080
-      INTERNAL_LISTEN_ADDR: 0.0.0.0:8081
+      LISTEN_ADDR: 0.0.0.0:8080
       RETENTION_DAYS: ${ENGINE_RETENTION_DAYS:-14}
       LOGHUB_MAX_REQUEST_BYTES: ${LOGHUB_MAX_REQUEST_BYTES:-1000000}
       LOGHUB_MAX_BATCH_RECORDS: ${LOGHUB_MAX_BATCH_RECORDS:-100}
@@ -55,8 +54,7 @@ services:
       LOGHUB_MAX_STACKTRACE_BYTES: ${LOGHUB_MAX_STACKTRACE_BYTES:-65536}
       LOGHUB_MAX_NESTING_DEPTH: ${LOGHUB_MAX_NESTING_DEPTH:-5}
     ports:
-      - "8080:8080" # public ingestion
-      - "127.0.0.1:8081:8081" # internal search/admin: never expose publicly
+      - "8080:8080" # UI, ingestion and API (master key protects /v1/projects)
 
 volumes:
 ###> doctrine/doctrine-bundle ###

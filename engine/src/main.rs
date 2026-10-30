@@ -1,6 +1,6 @@
 use std::process::ExitCode;
 
-use loghub_engine::{AppState, config::Config, ingest_router, internal_router, migrate, retention};
+use loghub_engine::{AppState, config::Config, migrate, retention, router};
 use sqlx::postgres::PgPoolOptions;
 use tokio::{net::TcpListener, signal};
 use tracing_subscriber::EnvFilter;
@@ -32,17 +32,14 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     migrate(&pool).await?;
 
     let state = AppState::new(pool.clone(), config.limits.clone(), &config.master_key);
-    let ingest = TcpListener::bind(config.ingest_addr).await?;
-    let internal = TcpListener::bind(config.internal_addr).await?;
-    tracing::info!(ingest = %config.ingest_addr, internal = %config.internal_addr, "listening");
+    let listener = TcpListener::bind(config.listen_addr).await?;
+    tracing::info!(addr = %config.listen_addr, "listening");
 
     tokio::spawn(retention::run_daily(pool, config.retention_days));
 
-    // try_join: if one listener dies, exit instead of running half-up behind a green /health.
-    tokio::try_join!(
-        axum::serve(ingest, ingest_router(state.clone())).with_graceful_shutdown(shutdown()),
-        axum::serve(internal, internal_router(state)).with_graceful_shutdown(shutdown()),
-    )?;
+    axum::serve(listener, router(state))
+        .with_graceful_shutdown(shutdown())
+        .await?;
     Ok(())
 }
 

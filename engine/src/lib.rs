@@ -11,6 +11,7 @@ pub mod record;
 pub mod retention;
 pub mod search;
 pub mod traces;
+pub mod ui;
 
 use axum::{
     Json, Router,
@@ -59,40 +60,39 @@ pub async fn migrate(pool: &PgPool) -> Result<(), sqlx::migrate::MigrateError> {
     sqlx::migrate!("./migrations").run(pool).await
 }
 
-/// Public listener: ingestion only.
-pub fn ingest_router(state: AppState) -> Router {
-    Router::new()
-        .route("/api/v1/logs", post(ingest::ingest))
-        .route("/v1/traces", post(otlp::export))
-        .with_state(state)
-}
-
-/// Internal listener: `/health` is open, everything under `/v1` needs the master key.
-pub fn internal_router(state: AppState) -> Router {
-    let v1 = Router::new()
+/// One router, auth per route: ingestion routes check the project key themselves,
+/// `/v1/projects/...` is behind the master-key layer, `/health` and the UI are open.
+pub fn router(state: AppState) -> Router {
+    let admin = Router::new()
         .route(
-            "/projects",
+            "/v1/projects",
             post(admin::create_project).get(admin::list_projects),
         )
-        .route("/projects/{project_id}", get(admin::get_project))
+        .route("/v1/projects/{project_id}", get(admin::get_project))
         .route(
-            "/projects/{project_id}/keys",
+            "/v1/projects/{project_id}/keys",
             post(admin::create_key).get(admin::list_keys),
         )
         .route(
-            "/projects/{project_id}/keys/{key_id}/revoke",
+            "/v1/projects/{project_id}/keys/{key_id}/revoke",
             post(admin::revoke_key),
         )
-        .route("/projects/{project_id}/logs/search", post(search::search))
-        .route("/projects/{project_id}/logs/count", post(search::count))
         .route(
-            "/projects/{project_id}/logs/facets/{field}",
+            "/v1/projects/{project_id}/logs/search",
+            post(search::search),
+        )
+        .route("/v1/projects/{project_id}/logs/count", post(search::count))
+        .route(
+            "/v1/projects/{project_id}/logs/facets/{field}",
             get(search::facet),
         )
-        .route("/projects/{project_id}/logs/{log_id}", get(search::find))
-        .route("/projects/{project_id}/traces/search", post(traces::search))
+        .route("/v1/projects/{project_id}/logs/{log_id}", get(search::find))
         .route(
-            "/projects/{project_id}/traces/{trace_id}",
+            "/v1/projects/{project_id}/traces/search",
+            post(traces::search),
+        )
+        .route(
+            "/v1/projects/{project_id}/traces/{trace_id}",
             get(traces::find),
         )
         .route_layer(middleware::from_fn_with_state(
@@ -101,8 +101,11 @@ pub fn internal_router(state: AppState) -> Router {
         ));
 
     Router::new()
+        .route("/api/v1/logs", post(ingest::ingest))
+        .route("/v1/traces", post(otlp::export))
         .route("/health", get(health))
-        .nest("/v1", v1)
+        .merge(admin)
+        .fallback(ui::serve)
         .with_state(state)
 }
 
