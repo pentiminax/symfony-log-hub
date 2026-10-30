@@ -35,7 +35,7 @@
             "migrations/.gitignore"
         ]
     },
-    "loghub/monolog-bundle": {
+    "loghub/symfony-bundle": {
         "version": "dev-main"
     },
     "php-http/discovery": {

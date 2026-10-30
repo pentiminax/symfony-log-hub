@@ -6,7 +6,7 @@
     "repositories": [
         {
             "type": "path",
-            "url": "../packages/monolog-bundle"
+            "url": "../packages/symfony-bundle"
         }
     ],
     "require": {
@@ -16,7 +16,7 @@
         "doctrine/doctrine-bundle": "^3.3",
         "doctrine/doctrine-migrations-bundle": "^4.0",
         "doctrine/orm": "^3.7",
-        "loghub/monolog-bundle": "@dev",
+        "loghub/symfony-bundle": "@dev",
         "nyholm/psr7": "^1.8",
         "open-telemetry/exporter-otlp": "^1.4",
         "open-telemetry/sdk": "^1.15",

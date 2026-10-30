@@ -268,11 +268,21 @@ fn push_text(qb: &mut QueryBuilder<'_, Postgres>, t: &Target) {
             qb.push(*col);
         }
         Target::Json(col, path) => {
-            qb.push(format_args!("({col} #>> "))
-                .push_bind(path.clone())
-                .push(")");
+            qb.push("(");
+            push_json(qb, col, path);
+            qb.push(" #>> '{}')");
         }
     }
+}
+
+/// The JSONB value at `path`: the flat dotted key (`{"url.path": ..}`, what SDKs send) wins
+/// over the nested path (`{"url": {"path": ..}}`).
+fn push_json(qb: &mut QueryBuilder<'_, Postgres>, col: &str, path: &[String]) {
+    qb.push(format_args!("COALESCE({col} -> "))
+        .push_bind(path.join("."))
+        .push(format_args!(", {col} #> "))
+        .push_bind(path.to_vec())
+        .push(")");
 }
 
 fn scalar_string(v: &Value) -> Result<String, ApiError> {
@@ -326,11 +336,11 @@ fn push_cmp(
                 } else {
                     ("boolean", "boolean")
                 };
-                qb.push(format_args!("(CASE WHEN jsonb_typeof({col} #> "))
-                    .push_bind(path.clone());
-                qb.push(format_args!(") = '{kind}' THEN ({col} #>> "))
-                    .push_bind(path.clone());
-                qb.push(format_args!(")::{cast} END) {sql_op} "));
+                qb.push("(CASE WHEN jsonb_typeof(");
+                push_json(qb, col, path);
+                qb.push(format_args!(") = '{kind}' THEN ("));
+                push_json(qb, col, path);
+                qb.push(format_args!(" #>> '{{}}')::{cast} END) {sql_op} "));
                 qb.push_bind(scalar_string(v)?)
                     .push(format_args!("::{cast}"));
             }

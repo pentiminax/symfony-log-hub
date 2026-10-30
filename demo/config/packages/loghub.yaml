@@ -1,7 +1,10 @@
 loghub:
-    endpoint: '%env(LOGHUB_ENDPOINT)%'
-    api_key: '%env(LOGHUB_API_KEY)%'
+    url: '%env(LOGHUB_URL)%'
+    api_key: '%env(default::LOGHUB_API_KEY)%'
+    # Optional: only needed by the loghub:* console commands.
+    master_key: '%env(default::LOGHUB_MASTER_KEY)%'
     service:
         name: 'demo-app'
     environment: '%kernel.environment%'
     level: debug
+    tracing: { enabled: true }

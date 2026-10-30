@@ -1484,8 +1484,9 @@ use Symfony\Component\Config\Loader\ParamConfigurator as Param;
  *     generate_final_entities?: bool|Param, // Default: false
  * }
  * @psalm-type LoghubConfig = array{
- *     endpoint?: scalar|Param|null,
- *     api_key?: scalar|Param|null,
+ *     url?: scalar|Param|null,
+ *     api_key?: scalar|Param|null, // Default: null
+ *     master_key?: scalar|Param|null, // Default: null
  *     environment?: scalar|Param|null, // Default: "%kernel.environment%"
  *     timeout?: float|Param, // Default: 0.5
  *     level?: scalar|Param|null, // Default: "info"
@@ -1493,6 +1494,9 @@ use Symfony\Component\Config\Loader\ParamConfigurator as Param;
  *     service?: array{
  *         name?: scalar|Param|null,
  *         version?: scalar|Param|null, // Default: null
+ *     },
+ *     tracing?: array{
+ *         enabled?: bool|Param, // Default: false
  *     },
  *     batch?: array{
  *         max_records?: int|Param, // Default: 100

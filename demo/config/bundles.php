@@ -13,5 +13,5 @@ return [
     Symfony\Bundle\SecurityBundle\SecurityBundle::class => ['all' => true],
     Symfony\Bundle\MonologBundle\MonologBundle::class => ['all' => true],
     Symfony\Bundle\MakerBundle\MakerBundle::class => ['dev' => true],
-    LogHub\MonologBundle\LogHubMonologBundle::class => ['all' => true],
+    LogHub\SymfonyBundle\LogHubBundle::class => ['all' => true],
 ];

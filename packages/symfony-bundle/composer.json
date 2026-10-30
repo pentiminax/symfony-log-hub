@@ -1,0 +1,52 @@
+{
+    "name": "loghub/symfony-bundle",
+    "type": "symfony-bundle",
+    "description": "LogHub Symfony bundle: Monolog log shipping, OpenTelemetry trace correlation, engine API client and commands.",
+    "license": "proprietary",
+    "require": {
+        "monolog/monolog": "^3.7",
+        "php": ">=8.4",
+        "symfony/config": "8.1.*",
+        "symfony/console": "8.1.*",
+        "symfony/dependency-injection": "8.1.*",
+        "symfony/event-dispatcher": "8.1.*",
+        "symfony/http-client": "8.1.*",
+        "symfony/http-client-contracts": "^3.6",
+        "symfony/http-foundation": "8.1.*",
+        "symfony/http-kernel": "8.1.*",
+        "symfony/security-core": "8.1.*",
+        "symfony/uid": "8.1.*"
+    },
+    "suggest": {
+        "open-telemetry/api": "Adds trace_id/span_id of the active span to each log so LogHub can link logs to traces",
+        "open-telemetry/exporter-otlp": "Required by loghub.tracing.enabled (with open-telemetry/sdk, nyholm/psr7 and a PSR-18 client such as symfony/http-client)",
+        "open-telemetry/sdk": "Required by loghub.tracing.enabled",
+        "symfony/messenger": "Traces dispatched and consumed messages when loghub.tracing.enabled"
+    },
+    "require-dev": {
+        "nyholm/psr7": "^1.8",
+        "open-telemetry/api": "^1.0",
+        "open-telemetry/exporter-otlp": "^1.4",
+        "open-telemetry/sdk": "^1.15",
+        "phpunit/phpunit": "^13.3",
+        "symfony/messenger": "8.1.*"
+    },
+    "autoload": {
+        "psr-4": {
+            "LogHub\\SymfonyBundle\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "LogHub\\SymfonyBundle\\Tests\\": "tests/"
+        }
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "php-http/discovery": true
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}

@@ -115,7 +115,7 @@ async fn seeded(pool: PgPool) -> (App, String) {
         21,
         "e fatal",
         "billing",
-        json!({"payment_id": 7, "retry": true}),
+        json!({"payment_id": 7, "retry": true, "http.status_code": 503, "url.path": "/pay"}),
     );
     e["exception"] =
         json!({"type": "RuntimeException", "message": "Provider unavailable", "stacktrace": "#0"});
@@ -648,6 +648,22 @@ async fn search_filters_operators_and_text(pool: PgPool) {
         )
         .await,
         ["a info"]
+    );
+    // SDKs send flat dotted keys ({"url.path": ..}): the same field syntax finds them.
+    assert_eq!(
+        app.messages(
+            &p,
+            q(json!([
+                f("attributes.url.path", "equals", json!("/pay")),
+                f(
+                    "attributes.http.status_code",
+                    "greater_than_or_equal",
+                    json!(500)
+                )
+            ]))
+        )
+        .await,
+        ["e fatal"]
     );
     assert_eq!(
         app.messages(

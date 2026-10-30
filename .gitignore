@@ -1,21 +1,7 @@
-
-###> symfony/framework-bundle ###
 /.env.local
-/.env.local.php
 /.env.*.local
-/config/secrets/prod/prod.decrypt.private.php
-/public/bundles/
-/var/
-/vendor/
-###< symfony/framework-bundle ###
 
-###> phpunit/phpunit ###
-/phpunit.xml
-/.phpunit.cache/
-###< phpunit/phpunit ###
-
-
-###> symfony/framework-bundle ###
+# demo app
 /demo/.env.local
 /demo/.env.local.php
 /demo/.env.*.local
@@ -23,16 +9,9 @@
 /demo/public/bundles/
 /demo/var/
 /demo/vendor/
-###< symfony/framework-bundle ###
-
-###> phpunit/phpunit ###
 /demo/phpunit.xml
 /demo/.phpunit.cache/
-###< phpunit/phpunit ###
-
-###> symfony/asset-mapper ###
 /demo/public/assets/
 /demo/assets/vendor/
-###< symfony/asset-mapper ###
 
 /.idea/

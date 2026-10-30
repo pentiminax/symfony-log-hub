@@ -1,4 +1,0 @@
-symfonycasts_tailwind:
-    # Pinned on purpose: the bundle's default is null, which throws at build time.
-    # `bin/console tailwind:update` bumps this within the major.
-    binary_version: 'v4.3.3'

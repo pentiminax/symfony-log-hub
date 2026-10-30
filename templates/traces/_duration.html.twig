@@ -1,4 +1,0 @@
-{%- if ns >= 1000000000 -%}{{ (ns / 1000000000)|number_format(2) }} s
-{%- elseif ns >= 1000000 -%}{{ (ns / 1000000)|number_format(ns >= 100000000 ? 0 : 1) }} ms
-{%- elseif ns >= 1000 -%}{{ (ns / 1000)|number_format(0) }} µs
-{%- else -%}{{ ns }} ns{%- endif -%}

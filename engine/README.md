@@ -15,12 +15,18 @@ One listener (`LISTEN_ADDR`, default `0.0.0.0:8080`) serves everything, with aut
 
 Unknown paths under `/v1`, `/api` and `/health` return a JSON `404`, never the UI.
 
+> **Security.** The admin API and the UI share the public port. Use a long random `MASTER_KEY`
+> (>= 32 random chars) and put TLS in front (reverse proxy); the master key and project keys travel as
+> `Bearer` tokens. Restrict `/v1/projects` and `/` at the proxy if the instance is internet-facing.
+
 ## Web UI
 
 React + Vite + TypeScript SPA in `ui/` (React Router, TanStack Query, Tailwind v4), embedded into the
 binary with `rust-embed` from `ui/dist`. Sign in with the master key (kept in `localStorage`, sent as
 `Bearer` on every `/v1` call; a `401` signs you out). Pages: projects, API keys (plaintext shown once),
-placeholders for logs and traces.
+logs explorer (search, filters, facets) and traces (list, waterfall detail, link to a trace's logs).
+UI responses carry `X-Content-Type-Options`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer` and a
+strict CSP (no inline scripts).
 
 ```sh
 cd ui && npm install

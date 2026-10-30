@@ -6,6 +6,8 @@ import { Logs } from "./Logs";
 import { Login } from "./Login";
 import { ProjectDetail, ProjectsList } from "./Projects";
 import { Shell } from "./Shell";
+import { TraceDetail } from "./TraceDetail";
+import { Traces } from "./Traces";
 
 function Soon({ title }: { title: string }) {
   return (
@@ -36,7 +38,8 @@ export function App() {
       <Route element={<Shell />}>
         <Route index element={<Logs />} />
         <Route path="logs" element={<Logs />} />
-        <Route path="traces" element={<Soon title="Traces" />} />
+        <Route path="traces" element={<Traces />} />
+        <Route path="traces/:traceId" element={<TraceDetail />} />
         <Route path="projects" element={<ProjectsList />} />
         <Route path="projects/:id" element={<ProjectDetail />} />
         <Route path="*" element={<Soon title="Not found" />} />

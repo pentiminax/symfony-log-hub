@@ -320,7 +320,7 @@ function Results({ s, refreshMs, hasFilters }: { s: Explorer; refreshMs: number;
     refetchInterval: refreshMs > 0 && cursors.length === 0 ? refreshMs : false,
   });
   const count = useQuery({
-    queryKey: ["logs-count", identity, cursor],
+    queryKey: ["logs-count", identity],
     queryFn: () => api<{ count: number }>(`/v1/projects/${s.project}/logs/count`, { method: "POST", body: { ...queryBody(s), max: COUNT_CAP } }),
     enabled: !search.error,
     placeholderData: keepPreviousData,
@@ -415,7 +415,7 @@ function Results({ s, refreshMs, hasFilters }: { s: Explorer; refreshMs: number;
           <button type="button" className="lh-button lh-button-quiet" disabled={cursors.length === 0} onClick={() => go(cursors.slice(0, -1))}>
             <Icon name="chevron-left" className="size-3.5" /> Previous
           </button>
-          <button type="button" className="lh-button lh-button-quiet" disabled={!next || !search.data?.has_more} onClick={() => next && go([...cursors, next])}>
+          <button type="button" className="lh-button lh-button-quiet" disabled={!next || !search.data?.has_more || search.isPlaceholderData} onClick={() => next && go([...cursors, next])}>
             Next <Icon name="chevron-right" className="size-3.5" />
           </button>
         </div>
@@ -433,6 +433,9 @@ const lookup = (obj: Record<string, Json>, path: string): Json => {
 function cell(r: Log, path: string): string | null {
   const v = path.startsWith("attributes.") ? lookup(r.attributes, path.slice(11))
     : path.startsWith("resource.") ? lookup(r.resource, path.slice(9))
+    : path.startsWith("exception.") ? (r.exception ? lookup(r.exception, path.slice(10)) : null)
+    : path === "service.name" ? lookup(r.resource, "service.name")
+    : path === "environment" ? lookup(r.resource, "deployment.environment.name") ?? lookup(r.resource, "environment")
     : path === "channel" ? r.channel
     : path === "severity.text" ? r.severity.text
     : path === "trace.id" ? r.trace_id
@@ -544,7 +547,7 @@ function Copy({ text, children = "Copy value", icon = false }: { text: string; c
   );
 }
 
-function Detail({ label, value, field, s }: { label: string; value: string; field?: string; s: Explorer }) {
+function Detail({ label, value, field, s, filterable = true }: { label: string; value: string; field?: string; s: Explorer; filterable?: boolean }) {
   return (
     <div className="group grid grid-cols-1 items-start gap-x-3 gap-y-0.5 border-b border-line/70 px-4 py-2 sm:grid-cols-[minmax(9rem,14rem)_1fr] sm:px-5">
       <span className="truncate font-mono text-micro text-ink-muted" title={label}>{label}</span>
@@ -552,7 +555,7 @@ function Detail({ label, value, field, s }: { label: string; value: string; fiel
         <span className="min-w-0 flex-1 font-mono break-words text-ink">{value}</span>
         <span className="flex shrink-0 items-center gap-0.5 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100">
           <Copy text={value} icon />
-          {field && (
+          {field && filterable && (
             <>
               <button type="button" className="lh-row-action" title="Filter for this value" onClick={() => s.addFilter({ field, op: "equals", value })}>
                 <Icon name="plus" className="size-3.5" /><span className="sr-only">Filter for this value</span>
@@ -560,6 +563,10 @@ function Detail({ label, value, field, s }: { label: string; value: string; fiel
               <button type="button" className="lh-row-action" title="Filter out this value" onClick={() => s.addFilter({ field, op: "not_equals", value })}>
                 <Icon name="minus" className="size-3.5" /><span className="sr-only">Filter out this value</span>
               </button>
+            </>
+          )}
+          {field && (
+            <>
               <button type="button" className="lh-row-action" title="Add as column" onClick={() => s.addColumn(field)}>
                 <Icon name="column" className="size-3.5" /><span className="sr-only">Add as column</span>
               </button>
@@ -611,7 +618,10 @@ function Drawer({ s }: { s: Explorer }) {
   };
   const kvs = (obj: Record<string, Json>, prefix: string, none: string) => {
     const keys = Object.keys(obj);
-    return keys.length === 0 ? <p className="px-5 py-8 text-center text-body text-ink-muted">{none}</p> : keys.map((k) => <Detail key={k} s={s} label={k} value={str(obj[k])} field={prefix + k} />);
+    return keys.length === 0 ? <p className="px-5 py-8 text-center text-body text-ink-muted">{none}</p> : keys.map((k) => (
+      // The engine splits JSON paths on "." (so a flat "url.path" key can't match) and only takes scalars.
+      <Detail key={k} s={s} label={k} value={str(obj[k])} field={prefix + k} filterable={/^\w+(\.\w+)*$/.test(k) && typeof obj[k] !== "object"} />
+    ));
   };
   const raw = r && JSON.stringify({
     id: r.id, timestamp: r.timestamp, severity: r.severity, message: r.message, channel: r.channel,

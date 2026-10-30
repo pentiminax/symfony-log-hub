@@ -1,3 +1,0 @@
-loghub_engine:
-    url: '%env(LOGHUB_ENGINE_URL)%'
-    master_key: '%env(LOGHUB_ENGINE_MASTER_KEY)%'
