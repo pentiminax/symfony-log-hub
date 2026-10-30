@@ -6,6 +6,49 @@ import { cn } from "@/lib/utils";
 import { type Project, api, clearKey } from "./api";
 import { Icon } from "./icons";
 
+/** Native select dressed as the design's outline button: leading icon, 36px tall. */
+export function OutlineSelect({ icon, className, children, ...props }: { icon: "calendar" | "chevrons-up-down" } & React.ComponentProps<"select">) {
+  return (
+    <span className="relative inline-flex">
+      <Icon name={icon} className="pointer-events-none absolute top-1/2 left-4 size-4 -translate-y-1/2" />
+      <select
+        className={cn("h-9 cursor-pointer appearance-none rounded-md border border-border bg-background pr-4 pl-10 text-sm font-medium text-foreground shadow-xs hover:bg-muted", className)}
+        {...props}
+      >
+        {children}
+      </select>
+    </span>
+  );
+}
+
+/** Time range picker (plus custom dates). Lives in the header, or in the Overview heading. */
+export function PeriodControls() {
+  const [params, setParams] = useSearchParams();
+  const range = params.get("range") ?? DEFAULT_RANGE;
+  const set = (k: string, v: string, empty = "") =>
+    setParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (v && v !== empty) next.set(k, v);
+      else next.delete(k);
+      next.delete("cursor");
+      return next;
+    });
+  return (
+    <>
+      <label htmlFor="period-select" className="sr-only">Time range</label>
+      <OutlineSelect icon="calendar" id="period-select" value={range} onChange={(e) => set("range", e.target.value, DEFAULT_RANGE)}>
+        {RANGES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+      </OutlineSelect>
+      {range === "custom" && (
+        <>
+          <input type="datetime-local" className="lh-control" aria-label="From" value={params.get("from") ?? ""} onChange={(e) => set("from", e.target.value)} />
+          <input type="datetime-local" className="lh-control" aria-label="To" value={params.get("to") ?? ""} onChange={(e) => set("to", e.target.value)} />
+        </>
+      )}
+    </>
+  );
+}
+
 // Order is part of the product: Overview → Traces → Logs → Projects.
 const nav = [
   { to: "/", label: "Overview", icon: "overview", end: true },
@@ -20,7 +63,6 @@ export function Shell() {
   const [params, setParams] = useSearchParams();
   const { pathname } = useLocation();
   const project = params.get("project") ?? "";
-  const range = params.get("range") ?? DEFAULT_RANGE;
   const projects = useQuery({ queryKey: ["projects"], queryFn: () => api<Project[]>("/v1/projects") });
   // Project and period travel with the user from page to page.
   const search = new URLSearchParams([...params].filter(([k]) => ["project", "range", "from", "to"].includes(k))).toString();
@@ -82,26 +124,13 @@ export function Shell() {
           </span>
           <span className="mr-auto hidden md:block" />
           <label htmlFor="project-select" className="sr-only">Project</label>
-          <select id="project-select" className="lh-control min-w-36 max-w-full" value={project} onChange={(e) => setParam("project", e.target.value)}>
+          <OutlineSelect icon="chevrons-up-down" id="project-select" value={project} onChange={(e) => setParam("project", e.target.value)}>
             <option value="">All projects</option>
             {projects.data?.map((p) => (
               <option key={p.id} value={p.id}>{p.name}</option>
             ))}
-          </select>
-          {showPeriod && (
-            <>
-              <label htmlFor="period-select" className="sr-only">Time range</label>
-              <select id="period-select" className="lh-control" value={range} onChange={(e) => setParam("range", e.target.value, DEFAULT_RANGE)}>
-                {RANGES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-              </select>
-              {range === "custom" && (
-                <>
-                  <input type="datetime-local" className="lh-control" aria-label="From" value={params.get("from") ?? ""} onChange={(e) => setParam("from", e.target.value)} />
-                  <input type="datetime-local" className="lh-control" aria-label="To" value={params.get("to") ?? ""} onChange={(e) => setParam("to", e.target.value)} />
-                </>
-              )}
-            </>
-          )}
+          </OutlineSelect>
+          {showPeriod && pathname !== "/" && <PeriodControls />}
           <Button variant="ghost" size="icon" className="md:hidden" onClick={clearKey}>
             <Icon name="sign-out" />
             <span className="sr-only">Forget master key</span>

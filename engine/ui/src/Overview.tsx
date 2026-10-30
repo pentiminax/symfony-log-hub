@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
 import { Histogram } from "@/components/Histogram";
 import { MetricCard } from "@/components/MetricCard";
-import { Severity } from "@/components/Severity";
+import { levelOf } from "@/components/Severity";
 import { StateView } from "@/components/StateView";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -10,12 +10,15 @@ import { bucketSeconds, rangeLabel, resolveRange } from "@/lib/range";
 import { scopeBase } from "@/lib/scope";
 import { usePageScope } from "@/lib/usePageScope";
 import { api } from "./api";
+import { PeriodControls } from "./Shell";
 import { formatDuration } from "./traceTree";
 
 type Bucket = { t: string; total: number; errors: number };
 type Log = { id: string; project_id: string; timestamp: string; severity: { number: number }; message: string; resource: Record<string, unknown> };
 type Trace = { duration_ns: number; error_count: number };
 
+const ROW = "flex h-[42px] items-center gap-3 px-[18px]";
+const LEVEL_INK = { trace: "text-ink", debug: "text-ink", info: "text-info-ink", warn: "text-warn-ink", error: "text-error-ink", fatal: "text-fatal-ink" };
 const nf = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 2 });
 const percentile = (sorted: number[], p: number) => sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))];
 
@@ -73,7 +76,10 @@ export function Overview() {
   if (!s.ready)
     return (
       <div className="p-4 sm:p-6">
-        <h1 className="text-lg font-semibold tracking-tight">Overview</h1>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h1 className="text-lg font-semibold tracking-tight">Overview</h1>
+          <div className="flex flex-wrap items-center gap-2"><PeriodControls /></div>
+        </div>
         <StateView kind="empty" icon="search" title="Choose a start and an end date">
           The custom range needs both dates before LogHub can load the overview.
         </StateView>
@@ -82,11 +88,14 @@ export function Overview() {
 
   return (
     <div className="flex flex-col gap-4 p-4 sm:p-6">
-      <div>
-        <h1 className="text-lg font-semibold tracking-tight">Overview</h1>
-        <p className="text-body text-muted-foreground">
-          {rangeLabel(s.range)} · {s.project ? "one project" : "all projects"}
-        </p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h1 className="text-lg font-semibold tracking-tight">Overview</h1>
+          <p className="text-body text-muted-foreground">
+            {rangeLabel(s.range)} · {s.project ? "one project" : "all projects"}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2"><PeriodControls /></div>
       </div>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -106,10 +115,10 @@ export function Overview() {
         />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="gap-3 p-4 lg:col-span-2">
+      <div className="grid gap-3 lg:grid-cols-[1fr_290px]">
+        <Card className="gap-3 rounded-lg border border-border ring-0 p-[18px]">
           <div className="flex items-baseline justify-between">
-            <h2 className="text-md font-medium">Event volume</h2>
+            <h2 className="text-sm font-semibold">Event volume</h2>
             <span className="flex items-center gap-3 text-micro text-muted-foreground">
               <span className="flex items-center gap-1"><span className="size-2 bg-brand-tint ring-1 ring-brand-line" />All</span>
               <span className="flex items-center gap-1"><span className="size-2 bg-error-dot" />Errors</span>
@@ -130,8 +139,11 @@ export function Overview() {
           )}
         </Card>
 
-        <Card className="gap-3 p-4">
-          <h2 className="text-md font-medium">Services</h2>
+        <Card className="gap-[15px] rounded-lg border border-border ring-0 p-[18px]">
+          <div>
+            <h2 className="text-sm font-semibold">Service health</h2>
+            <p className="text-micro text-muted-foreground">Services reporting logs in this period</p>
+          </div>
           {services.isPending ? (
             <Skeleton className="h-24 w-full" />
           ) : services.isError ? (
@@ -139,10 +151,11 @@ export function Overview() {
           ) : services.data.values.length === 0 ? (
             <p className="text-body text-muted-foreground">No service reported logs in this period.</p>
           ) : (
-            <ul className="flex flex-col">
+            <ul className="flex flex-col gap-[15px]">
               {services.data.values.slice(0, 8).map((name) => (
                 <li key={name}>
-                  <Link className="block truncate rounded px-1 py-1.5 font-mono text-body text-brand hover:bg-muted" to={`/logs${q(`service=${encodeURIComponent(name)}`)}`}>
+                  <Link className="flex items-center gap-2 truncate text-label text-foreground hover:underline" to={`/logs${q(`service=${encodeURIComponent(name)}`)}`}>
+                    <span className="size-1.5 shrink-0 rounded-full bg-[#15805D]" aria-hidden="true" />
                     {name}
                   </Link>
                 </li>
@@ -153,9 +166,9 @@ export function Overview() {
       </div>
 
       <Card className="gap-0 p-0">
-        <div className="flex items-center justify-between px-4 py-3">
-          <h2 className="text-md font-medium">Recent events</h2>
-          <Link className="text-body text-brand hover:underline" to={`/logs${s.search}`}>View all logs</Link>
+        <div className="flex h-14 items-center justify-between px-[18px]">
+          <h2 className="text-sm font-semibold">Recent events</h2>
+          <Link className="text-label font-semibold text-brand hover:underline" to={`/logs${s.search}`}>View all logs →</Link>
         </div>
         {recent.isPending ? (
           <Skeleton className="m-4 mt-0 h-32" />
@@ -164,17 +177,24 @@ export function Overview() {
         ) : recent.data.records.length === 0 ? (
           <StateView kind="empty" title="No logs found">Nothing was logged in this period.</StateView>
         ) : (
-          <ul className="divide-y divide-border border-t border-border">
+          <div className="text-label">
+            <div className={`${ROW} border-b border-border text-micro font-medium text-muted-foreground`}>
+              <span className="w-[120px] shrink-0">TIME</span>
+              <span className="w-20 shrink-0">LEVEL</span>
+              <span className="w-[150px] shrink-0">SERVICE</span>
+              <span className="min-w-0 flex-1">MESSAGE</span>
+            </div>
             {recent.data.records.map((r) => (
-              <li key={r.id}>
-                <Link to={`/logs${q(`log=${r.id}${s.project ? "" : `&logp=${r.project_id}`}`)}`} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 hover:bg-muted">
-                  <time className="tnum text-label text-muted-foreground" dateTime={r.timestamp}>{new Date(r.timestamp).toLocaleTimeString([], { hour12: false })}</time>
-                  <Severity n={r.severity.number} />
-                  <span className="min-w-0 flex-1 basis-60 truncate text-body">{r.message}</span>
-                </Link>
-              </li>
+              <Link key={r.id} to={`/logs${q(`log=${r.id}${s.project ? "" : `&logp=${r.project_id}`}`)}`} className={`${ROW} border-b border-border last:border-b-0 hover:bg-muted`}>
+                <time className="tnum w-[120px] shrink-0 text-muted-foreground" dateTime={r.timestamp}>
+                  {new Date(r.timestamp).toLocaleTimeString([], { hour12: false, fractionalSecondDigits: 3 })}
+                </time>
+                <span className={`w-20 shrink-0 uppercase ${LEVEL_INK[levelOf(r.severity.number)]}`}>{levelOf(r.severity.number)}</span>
+                <span className="w-[150px] shrink-0 truncate">{String(r.resource["service.name"] ?? "")}</span>
+                <span className="min-w-0 flex-1 truncate">{r.message}</span>
+              </Link>
             ))}
-          </ul>
+          </div>
         )}
       </Card>
       {[histogram, recent, traces, services].filter((x) => x.isError).length > 1 && (

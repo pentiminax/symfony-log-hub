@@ -26,6 +26,13 @@ const paths = {
       <path d="m20 20-4.2-4.2" />
     </>
   ),
+  "chevrons-up-down": <path d="m7 15 5 5 5-5M7 9l5-5 5 5" />,
+  calendar: (
+    <>
+      <rect x="3.5" y="5" width="17" height="15.5" rx="2" />
+      <path d="M8 3v4M16 3v4M3.5 10h17" />
+    </>
+  ),
   "chevron-down": <path d="m6 9 6 6 6-6" />,
   "chevron-up": <path d="m6 15 6-6 6 6" />,
   "chevron-left": <path d="m15 6-6 6 6 6" />,

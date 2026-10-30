@@ -7,7 +7,7 @@ const engine = process.env.ENGINE_URL ?? "http://127.0.0.1:8080";
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
-  resolve: { alias: { "@": path.resolve(__dirname, "src") } },
+  resolve: { alias: { "@": path.resolve(import.meta.dirname, "src") } },
   server: {
     proxy: { "/v1": engine, "/api": engine, "/health": engine },
   },
