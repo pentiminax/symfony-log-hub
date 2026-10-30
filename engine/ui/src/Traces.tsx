@@ -1,10 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
+import { useEffect, useRef } from "react";
 import { Link, useSearchParams } from "react-router";
 import { StateView } from "@/components/StateView";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { TraceLoader, TraceWaterfall, traceStats } from "@/components/TraceWaterfall";
 import { resolveRange } from "@/lib/range";
 import { scopeBase } from "@/lib/scope";
 import { usePageScope } from "@/lib/usePageScope";
@@ -88,7 +90,23 @@ export function Traces() {
     Object.entries(extra).forEach(([k, v]) => p.set(k, v));
     return `?${p}`;
   };
-  const detail = (t: Summary) => `/traces/${t.trace_id}?project=${encodeURIComponent(t.project_id)}`;
+  // Selection lives in the URL. In all-projects mode the row's project goes in "trace_project" so the list scope stays put.
+  const selected = params.get("trace") ?? "";
+  const selectedProject = project || params.get("trace_project") || "";
+  const select = (t: Summary) => {
+    const p = new URLSearchParams(params);
+    p.set("trace", t.trace_id);
+    if (project) p.delete("trace_project");
+    else p.set("trace_project", t.project_id);
+    return `?${p}`;
+  };
+  const isSelected = (t: Summary) => t.trace_id === selected && t.project_id === selectedProject;
+  const panel = useRef<HTMLElement>(null);
+  const first = useRef(true);
+  useEffect(() => {
+    if (first.current) first.current = false;
+    else panel.current?.scrollIntoView({ block: "nearest" });
+  }, [selected]);
 
   const data = result.data;
   const next = data?.next_cursor;
@@ -159,9 +177,9 @@ export function Traces() {
             </TableHeader>
             <TableBody>
               {data.traces.map((t) => (
-                <TableRow key={`${t.project_id}/${t.trace_id}`}>
+                <TableRow key={`${t.project_id}/${t.trace_id}`} data-state={isSelected(t) ? "selected" : undefined}>
                   <TableCell className="pl-6">
-                    <Link className="font-mono text-brand underline" to={detail(t)}>{t.root?.name ?? "(root span missing)"}</Link>
+                    <Link className="font-mono text-brand underline" to={select(t)} aria-current={isSelected(t) ? "true" : undefined}>{t.root?.name ?? "(root span missing)"}</Link>
                   </TableCell>
                   {!project && <TableCell className="text-muted-foreground">{nameOf(t.project_id)}</TableCell>}
                   <TableCell className="text-muted-foreground">{t.services.join(", ")}</TableCell>
@@ -176,8 +194,8 @@ export function Traces() {
 
           <ul className="divide-y divide-border border-y border-border md:hidden" aria-label="Traces, most recent first">
             {data.traces.map((t) => (
-              <li key={`${t.project_id}/${t.trace_id}`}>
-                <Link to={detail(t)} className="flex flex-col gap-1 px-4 py-3 active:bg-muted">
+              <li key={`${t.project_id}/${t.trace_id}`} className={isSelected(t) ? "bg-muted" : undefined}>
+                <Link to={select(t)} aria-current={isSelected(t) ? "true" : undefined} className="flex flex-col gap-1 px-4 py-3 active:bg-muted">
                   <span className="flex items-start justify-between gap-2">
                     <span className="min-w-0 break-words font-mono text-body font-medium">{t.root?.name ?? "(root span missing)"}</span>
                     <span className="tnum shrink-0 text-body">{formatDuration(t.duration_ns)}</span>
@@ -203,6 +221,31 @@ export function Traces() {
               <Button variant="outline" render={<Link rel="next" to={withCursor({ cursor: `${next.start_time}|${next.trace_id}` })} />}>Older traces</Button>
             )}
           </nav>
+
+          {selected && (
+            <section ref={panel} aria-label="Trace details" className="mx-4 mb-4 flex scroll-mb-4 flex-col gap-3 rounded-lg border border-border bg-card p-4 sm:mx-6 md:p-[18px]">
+              <TraceLoader project={selectedProject} traceId={selected}>
+                {(spans) => {
+                  const { root, totalNs, errors } = traceStats(spans);
+                  const dur = formatDuration(totalNs);
+                  return (
+                    <>
+                      <div className="flex items-center justify-between gap-3">
+                        <h2 className="min-w-0 truncate text-[14px] font-semibold">{root.name}</h2>
+                        <Badge variant="secondary" className="tnum hidden shrink-0 md:inline-flex">{dur}</Badge>
+                      </div>
+                      <p className="tnum text-micro text-muted-foreground">
+                        Trace {selected.slice(0, 8)} &middot; {spans.length} spans &middot; <span className="md:hidden">{dur}</span>
+                        <time className="hidden md:inline" dateTime={root.start_time}>{new Date(root.start_time).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}</time>
+                        {errors > 0 && <> &middot; {errors} error{errors > 1 ? "s" : ""}</>}
+                      </p>
+                      <TraceWaterfall spans={spans} />
+                    </>
+                  );
+                }}
+              </TraceLoader>
+            </section>
+          )}
         </>
       )}
     </div>
