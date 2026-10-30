@@ -4,6 +4,8 @@ namespace App\Controller;
 
 use App\Message\TestLogMessage;
 use Doctrine\DBAL\Connection;
+use OpenTelemetry\API\Trace\SpanKind;
+use OpenTelemetry\API\Trace\TracerInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\RedirectResponse;
@@ -17,6 +19,7 @@ final class DemoLogController extends AbstractController
         private readonly LoggerInterface $logger,
         private readonly MessageBusInterface $bus,
         private readonly Connection $connection,
+        private readonly TracerInterface $tracer,
     ) {
     }
 
@@ -29,7 +32,15 @@ final class DemoLogController extends AbstractController
     #[Route('/demo/sync', name: 'app_demo_sync', methods: ['POST'])]
     public function sync(): RedirectResponse
     {
-        $this->connection->fetchOne('SELECT 1');
+        $span = $this->tracer->spanBuilder('SELECT 1')
+            ->setSpanKind(SpanKind::KIND_CLIENT)
+            ->setAttribute('db.system.name', 'postgresql')
+            ->startSpan();
+        try {
+            $this->connection->fetchOne('SELECT 1');
+        } finally {
+            $span->end();
+        }
 
         $this->logger->info('Sync test log', ['source' => 'sync']);
 

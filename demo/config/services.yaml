@@ -31,3 +31,15 @@ services:
             $removeUsedContextFields: true
         tags:
             - { name: monolog.processor, handler: loghub }
+
+    OpenTelemetry\SDK\Trace\TracerProviderInterface:
+        factory: ['App\Tracing\TracerProviderFactory', 'create']
+        arguments:
+            - '%env(OTEL_EXPORTER_OTLP_TRACES_ENDPOINT)%'
+            - '%env(LOGHUB_API_KEY)%'
+            - 'demo-app'
+            - '%kernel.environment%'
+
+    OpenTelemetry\API\Trace\TracerInterface:
+        factory: ['@OpenTelemetry\SDK\Trace\TracerProviderInterface', 'getTracer']
+        arguments: ['demo-app']
