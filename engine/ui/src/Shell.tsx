@@ -51,13 +51,13 @@ export function PeriodControls() {
 
 // Order is part of the product: Overview → Traces → Logs → Projects.
 const nav = [
-  { to: "/", label: "Overview", icon: "overview", end: true },
-  { to: "/traces", label: "Traces", icon: "traces" },
-  { to: "/logs", label: "Logs", icon: "logs" },
-  { to: "/projects", label: "Projects", icon: "projects" },
+  { to: "/", label: "Overview", icon: "layout-dashboard", end: true },
+  { to: "/traces", label: "Traces", icon: "git-branch" },
+  { to: "/logs", label: "Logs", icon: "list" },
+  { to: "/projects", label: "Projects", icon: "folder" },
 ] as const;
 
-const link = "flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-body text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground aria-[current=page]:bg-sidebar-accent aria-[current=page]:font-medium aria-[current=page]:text-sidebar-accent-foreground";
+const link = "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-sidebar-foreground transition-colors hover:bg-sidebar-accent aria-[current=page]:bg-sidebar-accent";
 
 export function Shell() {
   const [params, setParams] = useSearchParams();
@@ -90,28 +90,26 @@ export function Shell() {
         Skip to content
       </a>
 
-      <aside className="hidden h-dvh w-sidebar shrink-0 flex-col border-r border-sidebar-border bg-sidebar md:flex">
-        <div className="flex items-center gap-2.5 px-4 py-4">
-          <span className="flex size-8 items-center justify-center rounded-md bg-primary text-primary-foreground">
-            <Icon name="logs" />
-          </span>
-          <span className="leading-tight">
-            <span className="block text-md font-semibold tracking-tight">LogHub</span>
-            <span className="block text-micro text-muted-foreground">Logs, traces, spans</span>
+      <aside className="hidden h-dvh w-sidebar shrink-0 flex-col gap-[18px] border-r border-sidebar-border bg-sidebar px-3 py-[18px] md:flex">
+        <div className="flex h-[42px] items-center gap-2.5 px-1.5 py-1">
+          <span className="flex size-8 items-center justify-center rounded-[7px] bg-[#1D4ED8] text-base font-bold text-white">L</span>
+          <span className="flex flex-col gap-0.5">
+            <span className="text-sm leading-none font-bold">LogHub</span>
+            <span className="text-[11px] leading-none text-muted-foreground">Acme workspace</span>
           </span>
         </div>
-        <nav className="flex flex-1 flex-col gap-0.5 px-2" aria-label="Sections">
+        <span className="text-[10px] font-semibold text-muted-foreground">WORKSPACE</span>
+        <nav className="flex flex-col gap-1" aria-label="Sections">
           {nav.map((n) => (
             <NavLink key={n.to} to={to(n.to)} end={"end" in n} className={link}>
               <Icon name={n.icon} /> {n.label}
             </NavLink>
           ))}
         </nav>
-        <div className="border-t border-sidebar-border p-2">
-          <Button variant="ghost" className="w-full justify-start gap-2.5" onClick={clearKey}>
-            <Icon name="sign-out" /> Forget master key
-          </Button>
-        </div>
+        <button type="button" onClick={clearKey} title="Forget master key" className="mt-auto flex h-[38px] items-center gap-2.5 rounded-md px-1.5 text-left hover:bg-sidebar-accent">
+          <span className="flex size-[30px] items-center justify-center rounded-full bg-muted text-sm font-semibold">PJ</span>
+          <span className="text-xs font-medium text-muted-foreground">Acme workspace</span>
+        </button>
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">

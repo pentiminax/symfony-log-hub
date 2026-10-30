@@ -20,6 +20,7 @@ type Trace = { duration_ns: number; error_count: number };
 const ROW = "flex h-[42px] items-center gap-3 px-[18px]";
 const LEVEL_INK = { trace: "text-ink", debug: "text-ink", info: "text-info-ink", warn: "text-warn-ink", error: "text-error-ink", fatal: "text-fatal-ink" };
 const nf = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 2 });
+const formatInterval = (s: number) => (s < 60 ? `${s} seconds` : s < 3600 ? `${s / 60} minutes` : s < 86400 ? `${s / 3600} hours` : `${s / 86400} days`);
 const percentile = (sorted: number[], p: number) => sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))];
 
 export function Overview() {
@@ -60,7 +61,7 @@ export function Overview() {
     queryFn: () => {
       const { from, to } = bounds();
       const qs = new URLSearchParams({ ...(from && { from }), ...(to && { to }) });
-      return api<{ values: string[] }>(`${base}/logs/facets/service.name?${qs}`);
+      return api<{ services: { name: string; total: number; errors: number }[] }>(`${base}/logs/services?${qs}`);
     },
     retry: false,
   });
@@ -116,16 +117,18 @@ export function Overview() {
       </div>
 
       <div className="grid gap-3 lg:grid-cols-[1fr_290px]">
-        <Card className="gap-3 rounded-lg border border-border ring-0 p-[18px]">
-          <div className="flex items-baseline justify-between">
-            <h2 className="text-sm font-semibold">Event volume</h2>
-            <span className="flex items-center gap-3 text-micro text-muted-foreground">
-              <span className="flex items-center gap-1"><span className="size-2 bg-brand-tint ring-1 ring-brand-line" />All</span>
-              <span className="flex items-center gap-1"><span className="size-2 bg-error-dot" />Errors</span>
-            </span>
+        <Card className="gap-3 rounded-lg border border-border bg-sidebar ring-0 p-[18px]">
+          <div>
+            <div className="flex items-baseline justify-between">
+              <h2 className="text-md font-semibold">Event volume</h2>
+              <span className="text-xs text-[#1D4ED8]">● Events</span>
+            </div>
+            {buckets.length > 1 && (
+              <p className="mt-3 text-xs text-muted-foreground">Events per {formatInterval((Date.parse(buckets[1].t) - Date.parse(buckets[0].t)) / 1000)}</p>
+            )}
           </div>
           {histogram.isPending ? (
-            <Skeleton className="h-32 w-full" />
+            <Skeleton className="h-[135px] w-full" />
           ) : histogram.isError ? (
             <StateView kind="error" className="py-6" action={{ label: "Try again", onClick: () => histogram.refetch() }}>
               {histogram.error.message}
@@ -142,24 +145,31 @@ export function Overview() {
         <Card className="gap-[15px] rounded-lg border border-border ring-0 p-[18px]">
           <div>
             <h2 className="text-sm font-semibold">Service health</h2>
-            <p className="text-micro text-muted-foreground">Services reporting logs in this period</p>
+            <p className="text-micro text-muted-foreground">Availability in this period</p>
           </div>
           {services.isPending ? (
             <Skeleton className="h-24 w-full" />
           ) : services.isError ? (
             <StateView kind="error" className="py-4" action={{ label: "Try again", onClick: () => services.refetch() }} />
-          ) : services.data.values.length === 0 ? (
+          ) : services.data.services.length === 0 ? (
             <p className="text-body text-muted-foreground">No service reported logs in this period.</p>
           ) : (
             <ul className="flex flex-col gap-[15px]">
-              {services.data.values.slice(0, 8).map((name) => (
-                <li key={name}>
-                  <Link className="flex items-center gap-2 truncate text-label text-foreground hover:underline" to={`/logs${q(`service=${encodeURIComponent(name)}`)}`}>
-                    <span className="size-1.5 shrink-0 rounded-full bg-[#15805D]" aria-hidden="true" />
-                    {name}
-                  </Link>
-                </li>
-              ))}
+              {services.data.services.slice(0, 8).map(({ name, total, errors }) => {
+                const up = (1 - errors / total) * 100;
+                const ink = up >= 99 ? "text-[#15805D]" : up >= 95 ? "text-warn-ink" : "text-error-ink";
+                return (
+                  <li key={name}>
+                    <Link className="flex items-center justify-between gap-2 text-label text-foreground hover:underline" to={`/logs${q(`service=${encodeURIComponent(name)}`)}`}>
+                      <span className="flex min-w-0 items-center gap-2">
+                        <span className={`size-1.5 shrink-0 rounded-full bg-current ${ink}`} aria-hidden="true" />
+                        <span className="truncate">{name}</span>
+                      </span>
+                      <span className={`tnum text-micro font-semibold ${ink}`}>{up.toFixed(2)}%</span>
+                    </Link>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </Card>

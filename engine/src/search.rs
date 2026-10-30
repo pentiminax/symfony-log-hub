@@ -647,6 +647,46 @@ async fn facet_in(
     Ok(Json(json!({"values": values})))
 }
 
+/// Per service: events and errors (severity_number >= 17) within the optional time range.
+pub async fn services(
+    State(s): State<AppState>,
+    ApiPath(project_id): ApiPath<Uuid>,
+    ApiQuery(range): ApiQuery<RangeQuery>,
+) -> Result<Json<Value>, ApiError> {
+    services_in(s, Some(project_id), range).await
+}
+
+pub async fn services_all(
+    State(s): State<AppState>,
+    ApiQuery(range): ApiQuery<RangeQuery>,
+) -> Result<Json<Value>, ApiError> {
+    services_in(s, None, range).await
+}
+
+async fn services_in(
+    s: AppState,
+    project_id: Option<Uuid>,
+    range: RangeQuery,
+) -> Result<Json<Value>, ApiError> {
+    let range = Range {
+        from: range.from,
+        to: range.to,
+    };
+    check_range(&range)?;
+    let mut qb = QueryBuilder::new(
+        "SELECT service_name, count(*), count(*) FILTER (WHERE severity_number >= 17) FROM logs WHERE service_name IS NOT NULL",
+    );
+    push_scope(&mut qb, project_id);
+    push_range(&mut qb, &range, "\"timestamp\"");
+    qb.push(format_args!(" GROUP BY 1 ORDER BY 1 ASC LIMIT {FACET_LIMIT}"));
+    let rows: Vec<(String, i64, i64)> = qb.build_query_as().fetch_all(&s.pool).await?;
+    let services: Vec<Value> = rows
+        .into_iter()
+        .map(|(name, total, errors)| json!({"name": name, "total": total, "errors": errors}))
+        .collect();
+    Ok(Json(json!({"services": services})))
+}
+
 /// Scoped by project on purpose: a log id alone must never cross a project boundary.
 pub async fn find(
     State(s): State<AppState>,

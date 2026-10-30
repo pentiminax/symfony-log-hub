@@ -847,6 +847,14 @@ async fn count_facets_find_and_project_isolation(pool: PgPool) {
         .admin(Method::GET, &format!("{path}/facets/service.name"), None)
         .await;
     assert_eq!(f, json!({"values": ["billing", "web"]}));
+    let (_, sv) = app
+        .admin(Method::GET, &format!("{path}/services"), None)
+        .await;
+    let names: Vec<_> = sv["services"].as_array().unwrap().iter().map(|x| x["name"].clone()).collect();
+    assert_eq!(names, vec![json!("billing"), json!("web")]);
+    let sum = |k: &str| sv["services"].as_array().unwrap().iter().map(|x| x[k].as_i64().unwrap()).sum::<i64>();
+    assert_eq!(sum("total"), 5);
+    assert!(sum("errors") <= 5);
     let (_, f) = app
         .admin(
             Method::GET,
