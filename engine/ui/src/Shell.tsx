@@ -32,6 +32,8 @@ export function Shell() {
       if (v && v !== empty) next.set(k, v);
       else next.delete(k);
       next.delete("cursor");
+      // A selected log or trace belongs to the project it was opened in.
+      if (k === "project") ["log", "logp", "trace", "trace_project"].forEach((x) => next.delete(x));
       return next;
     });
 

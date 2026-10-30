@@ -5,10 +5,12 @@ import { formatDuration } from "./traceTree";
 export function TraceDetail() {
   const { traceId = "" } = useParams();
   const [params] = useSearchParams();
-  const project = params.get("project") ?? "";
+  // The trace's own project; "project" is the list scope the user came from.
+  const project = params.get("trace_project") ?? params.get("project") ?? "";
+  const scope = new URLSearchParams([...params].filter(([k]) => ["project", "range", "from", "to"].includes(k))).toString();
   const back = (
     <p className="text-label">
-      <Link className="text-brand underline" to={{ pathname: "/traces", search: project ? `?project=${encodeURIComponent(project)}` : "" }}>
+      <Link className="text-brand underline" to={{ pathname: "/traces", search: scope ? `?${scope}` : "" }}>
         &larr; Traces
       </Link>
     </p>

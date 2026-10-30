@@ -22,6 +22,12 @@ export function resolveRange({ range, from = "", to = "" }: RangeParams) {
   return { from: new Date(now - ms).toISOString(), to: new Date(now).toISOString() };
 }
 
+/** Both bounds known: preset ranges always are, a custom one only once both dates are filled in. */
+export const isBounded = (p: RangeParams) => {
+  const r = resolveRange(p);
+  return !!(r.from && r.to);
+};
+
 export const rangeLabel = (range: string) => RANGES.find((r) => r[0] === range)?.[1] ?? "Last 24 hours";
 
 /** Histogram bucket size (seconds) giving ~24-48 bars for a preset. */

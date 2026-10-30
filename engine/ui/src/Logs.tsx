@@ -145,7 +145,7 @@ export function Logs() {
       </label>
       <select
         id={id}
-        className={`lh-control pr-1.5 ${value && prop !== "range" ? "border-brand-line bg-brand-tint" : ""}`}
+        className={`lh-control pr-1.5 ${value ? "border-brand-line bg-brand-tint" : ""}`}
         value={value}
         disabled={disabled}
         onChange={(e) => s.set(prop, e.target.value)}
@@ -667,7 +667,7 @@ function Drawer({ s }: { s: Explorer }) {
                   <Detail s={s} label="trace.id" value={r.trace_id} field="trace.id" />
                   <Detail s={s} label="span.id" value={r.span_id ?? "—"} field={r.span_id ? "span.id" : undefined} />
                   <p className="px-5 py-3">
-                    <Link className="text-brand underline" to={`/traces/${r.trace_id}?project=${encodeURIComponent(s.project || r.project_id)}`}>View this trace</Link>
+                    <Link className="text-brand underline" to={`/traces/${r.trace_id}?${new URLSearchParams({ trace_project: r.project_id, ...(s.project && { project: s.project }), ...(s.range !== "24h" && { range: s.range }), ...(s.from && { from: s.from }), ...(s.to && { to: s.to }) })}`}>View this trace</Link>
                   </p>
                 </>
               ) : (

@@ -23,31 +23,36 @@ export function Overview() {
   const s = usePageScope();
   const base = scopeBase(s.project);
   const key = [s.project, s.range, s.from, s.to];
+  const enabled = s.ready;
   const bounds = () => resolveRange(s);
 
   const histogram = useQuery({
+    enabled,
     queryKey: ["overview", "histogram", ...key],
     queryFn: () => {
       const range = bounds();
       // Custom ranges can be open-ended or huge: pick an interval that keeps buckets under the engine cap.
       const span = range.from && range.to ? (Date.parse(range.to) - Date.parse(range.from)) / 1000 : 0;
-      const interval = s.range === "custom" ? Math.max(1, Math.ceil(span / 200)) : bucketSeconds(s.range);
+      const interval = s.range === "custom" ? Math.min(86400, Math.max(1, Math.ceil(span / 200))) : bucketSeconds(s.range);
       return api<{ buckets: Bucket[] }>(`${base}/logs/histogram`, { method: "POST", body: { range, interval } });
     },
     retry: false,
   });
   const recent = useQuery({
+    enabled,
     queryKey: ["overview", "recent", ...key],
     queryFn: () =>
       api<{ records: Log[] }>(`${base}/logs/search`, { method: "POST", body: { range: bounds(), sort: { field: "timestamp", direction: "desc" }, limit: 5 } }),
     retry: false,
   });
   const traces = useQuery({
+    enabled,
     queryKey: ["overview", "traces", ...key],
     queryFn: () => api<{ traces: Trace[]; has_more: boolean }>(`${base}/traces/search`, { method: "POST", body: { range: bounds(), limit: 200 } }),
     retry: false,
   });
   const services = useQuery({
+    enabled,
     queryKey: ["overview", "services", ...key],
     queryFn: () => {
       const { from, to } = bounds();
@@ -64,6 +69,16 @@ export function Overview() {
   const sampled = traces.data?.has_more ? "latest 200 traces" : `${durations.length} traces`;
   const retryAll = () => [histogram, recent, traces, services].forEach((q) => q.isError && q.refetch());
   const q = (extra = "") => `${s.search}${s.search ? "&" : "?"}${extra}`.replace(/[?&]$/, "");
+
+  if (!s.ready)
+    return (
+      <div className="p-4 sm:p-6">
+        <h1 className="text-lg font-semibold tracking-tight">Overview</h1>
+        <StateView kind="empty" icon="search" title="Choose a start and an end date">
+          The custom range needs both dates before LogHub can load the overview.
+        </StateView>
+      </div>
+    );
 
   return (
     <div className="flex flex-col gap-4 p-4 sm:p-6">

@@ -83,6 +83,12 @@ pub(crate) struct Range {
     to: Option<DateTime<Utc>>,
 }
 
+impl Range {
+    pub(crate) fn is_bounded(&self) -> bool {
+        self.from.is_some() && self.to.is_some()
+    }
+}
+
 #[derive(Deserialize, Clone, Copy, Default, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 enum Direction {
@@ -560,8 +566,9 @@ async fn histogram_in(
         )));
     }
     let interval = chrono::Duration::seconds(req.interval);
-    let span = (to - from).num_seconds().max(0);
-    let n = (span + req.interval - 1) / req.interval;
+    // Milliseconds, so a `to` with a fractional second still gets its own bucket.
+    let span_ms = (to - from).num_milliseconds().max(0);
+    let n = (span_ms + req.interval * 1000 - 1) / (req.interval * 1000);
     let n = n.max(1);
     if n > MAX_BUCKETS {
         return Err(invalid(format!(

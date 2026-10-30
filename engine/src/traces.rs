@@ -60,6 +60,9 @@ fn resolve(field: &str) -> Result<Target, ApiError> {
 struct Cursor {
     start_time: DateTime<Utc>,
     trace_id: String,
+    /// Same trace id can exist in several projects; nil (absent) sorts below any real id.
+    #[serde(default)]
+    project_id: Uuid,
 }
 
 #[derive(Deserialize)]
@@ -116,6 +119,12 @@ async fn search_in(
         return Err(invalid(format!("limit must be between 1 and {MAX_LIMIT}")));
     }
     check_range(&q.range)?;
+    // All-projects grouping cannot use a project-leading index: never run it unbounded.
+    if project_id.is_none() && !q.range.is_bounded() {
+        return Err(invalid(
+            "range.from and range.to are required for all-projects trace search",
+        ));
+    }
 
     let mut qb = QueryBuilder::new(
         "SELECT project_id, trace_id, min(start_time) AS start_time, \
@@ -136,13 +145,15 @@ async fn search_in(
     }
     qb.push(") GROUP BY project_id, trace_id");
     if let Some(c) = &q.cursor {
-        qb.push(" HAVING (min(start_time), trace_id) < (")
+        qb.push(" HAVING (min(start_time), trace_id, project_id) < (")
             .push_bind(c.start_time)
             .push(", ")
             .push_bind(&c.trace_id)
+            .push(", ")
+            .push_bind(c.project_id)
             .push(")");
     }
-    qb.push(" ORDER BY min(start_time) DESC, trace_id DESC LIMIT ")
+    qb.push(" ORDER BY min(start_time) DESC, trace_id DESC, project_id DESC LIMIT ")
         .push_bind(q.limit + 1);
 
     let mut rows: Vec<TraceRow> = qb.build_query_as().fetch_all(&s.pool).await?;
@@ -150,7 +161,9 @@ async fn search_in(
     let has_more = rows.len() > limit;
     rows.truncate(limit);
     let next_cursor = match rows.last() {
-        Some(last) if has_more => json!({"start_time": last.start_time, "trace_id": last.trace_id}),
+        Some(last) if has_more => {
+            json!({"start_time": last.start_time, "trace_id": last.trace_id, "project_id": last.project_id})
+        }
         _ => Value::Null,
     };
     let traces: Vec<Value> = rows

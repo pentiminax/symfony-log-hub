@@ -599,14 +599,56 @@ async fn all_projects_trace_search_labels_rows_with_project_id(pool: PgPool) {
         &k2,
         "web",
         vec![
-            span(1, 1, 0, "GET /b", 5, 10),
+            span(1, 1, 0, "GET /b", 0, 10),
             span(2, 1, 0, "GET /c", 50, 10),
         ],
     )
     .await;
 
+    let range = json!({"from": "2026-09-05T09:00:00Z", "to": "2026-09-05T11:00:00Z"});
+    // Unbounded all-projects grouping is refused.
+    for body in [
+        json!({}),
+        json!({"range": {"from": "2026-09-05T09:00:00Z"}}),
+    ] {
+        let (s, _) = app
+            .admin(Method::POST, "/v1/traces/search", Some(body))
+            .await;
+        assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    // Pages of one row keep every row, even when two projects share a trace id and start time.
+    let mut seen = Vec::new();
+    let mut cursor = Value::Null;
+    loop {
+        let v = app
+            .admin(
+                Method::POST,
+                "/v1/traces/search",
+                Some(json!({"range": range, "limit": 1, "cursor": cursor})),
+            )
+            .await
+            .1;
+        let r = &v["traces"][0];
+        seen.push((
+            r["project_id"].as_str().unwrap().to_owned(),
+            r["trace_id"].as_str().unwrap().to_owned(),
+        ));
+        cursor = v["next_cursor"].clone();
+        if cursor.is_null() {
+            break;
+        }
+    }
+    seen.sort();
+    seen.dedup();
+    assert_eq!(seen.len(), 3);
+
     let v = app
-        .admin(Method::POST, "/v1/traces/search", Some(json!({})))
+        .admin(
+            Method::POST,
+            "/v1/traces/search",
+            Some(json!({"range": range})),
+        )
         .await
         .1;
     let rows = v["traces"].as_array().unwrap();
@@ -631,7 +673,7 @@ async fn all_projects_trace_search_labels_rows_with_project_id(pool: PgPool) {
     assert_eq!(s, StatusCode::OK);
 
     let v = app
-        .admin(Method::POST, "/v1/traces/search", Some(json!({"filters": [{"field": "service.name", "operator": "equals", "value": "web"}]})))
+        .admin(Method::POST, "/v1/traces/search", Some(json!({"range": range, "filters": [{"field": "service.name", "operator": "equals", "value": "web"}]})))
         .await
         .1;
     assert_eq!(v["traces"].as_array().unwrap().len(), 2);

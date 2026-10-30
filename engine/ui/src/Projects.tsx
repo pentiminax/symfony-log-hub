@@ -71,7 +71,9 @@ export function ProjectsList() {
     queries: (projects.data ?? []).map((p) => ({ queryKey: ["projects", p.id, "keys"], queryFn: () => api<ApiKey[]>(`/v1/projects/${p.id}/keys`) })),
   });
   const active = (i: number) => keys[i]?.data?.filter((k) => !k.revoked_at).length;
-  const activeTotal = keys.every((k) => k.data) ? keys.reduce((n, k) => n + (k.data?.filter((x) => !x.revoked_at).length ?? 0), 0) : undefined;
+  const keysPending = keys.some((k) => k.isPending);
+  const keysFailed = keys.some((k) => k.isError);
+  const activeTotal = keysFailed ? "—" : keysPending ? undefined : keys.reduce((n, k) => n + (k.data?.filter((x) => !x.revoked_at).length ?? 0), 0);
   const shown = (projects.data ?? []).map((p, i) => ({ p, i })).filter(({ p }) => p.name.toLowerCase().includes(filter.trim().toLowerCase()));
   const scoped = (path: string, id: string) => ({ pathname: path, search: new URLSearchParams({ project: id }).toString() });
 
@@ -84,7 +86,7 @@ export function ProjectsList() {
 
       <div className="grid grid-cols-2 gap-3 sm:max-w-md">
         <MetricCard label="Projects" value={projects.data?.length} loading={projects.isPending} />
-        <MetricCard label="Active API keys" value={activeTotal} loading={activeTotal === undefined && !projects.isError} />
+        <MetricCard label="Active API keys" value={activeTotal} loading={projects.isPending || keysPending} />
       </div>
 
       <NameForm label="New project" placeholder="my-app" onSubmit={(n) => create.mutateAsync(n)} pending={create.isPending} error={create.error} />
@@ -113,7 +115,7 @@ export function ProjectsList() {
                   <Link to={{ pathname: `/projects/${p.id}`, search: params.toString() }} className="font-medium text-brand hover:underline">{p.name}</Link>
                   <p className="text-label text-muted-foreground">Created <time dateTime={p.created_at}>{date(p.created_at)}</time></p>
                 </div>
-                <span className="tnum text-label text-muted-foreground">{active(i) ?? "…"} active key{active(i) === 1 ? "" : "s"}</span>
+                <span className="tnum text-label text-muted-foreground">{keys[i]?.isError ? "Keys unavailable" : `${active(i) ?? "…"} active key${active(i) === 1 ? "" : "s"}`}</span>
                 <span className="flex gap-1">
                   <Button variant="outline" size="sm" render={<Link to={scoped("/logs", p.id)} />}>Logs</Button>
                   <Button variant="outline" size="sm" render={<Link to={scoped("/traces", p.id)} />}>Traces</Button>

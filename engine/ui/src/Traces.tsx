@@ -13,7 +13,7 @@ import { usePageScope } from "@/lib/usePageScope";
 import { type Project, api } from "./api";
 import { formatDuration } from "./traceTree";
 
-type Cursor = { start_time: string; trace_id: string };
+type Cursor = { start_time: string; trace_id: string; project_id?: string };
 type Summary = {
   project_id: string;
   trace_id: string;
@@ -28,10 +28,10 @@ type Result = { traces: Summary[]; next_cursor: Cursor | null; has_more: boolean
 
 const PER_PAGE = 50;
 
-// "cursor" in the URL is "<start_time>|<trace_id>".
+// "cursor" in the URL is "<start_time>|<trace_id>|<project_id>".
 const parseCursor = (raw: string): Cursor | null => {
-  const [start_time, trace_id] = raw.split("|");
-  return start_time && trace_id ? { start_time, trace_id } : null;
+  const [start_time, trace_id, project_id] = raw.split("|");
+  return start_time && trace_id ? { start_time, trace_id, ...(project_id && { project_id }) } : null;
 };
 
 const when = (iso: string) => {
@@ -69,6 +69,7 @@ export function Traces() {
     });
 
   const result = useQuery({
+    enabled: scope.ready,
     queryKey: ["traces", project, scope.range, scope.from, scope.to, service, errors, cursorRaw],
     queryFn: () => {
       const filters = [
@@ -143,7 +144,11 @@ export function Traces() {
         </form>
       </header>
 
-      {result.isError ? (
+      {!scope.ready ? (
+        <StateView kind="empty" icon="search" title="Choose a start and an end date">
+          The custom range needs both dates before LogHub can list traces.
+        </StateView>
+      ) : result.isError ? (
         <StateView kind="error" action={{ label: "Try again", onClick: () => result.refetch() }}>{result.error.message}</StateView>
       ) : !data ? (
         <div className="flex flex-col gap-2 px-4 sm:px-6" role="status" aria-busy="true">
@@ -218,7 +223,7 @@ export function Traces() {
               <Button variant="outline" render={<Link to={withCursor({})} />}>First page</Button>
             )}
             {data.has_more && next && (
-              <Button variant="outline" render={<Link rel="next" to={withCursor({ cursor: `${next.start_time}|${next.trace_id}` })} />}>Older traces</Button>
+              <Button variant="outline" render={<Link rel="next" to={withCursor({ cursor: `${next.start_time}|${next.trace_id}|${next.project_id ?? ""}` })} />}>Older traces</Button>
             )}
           </nav>
 

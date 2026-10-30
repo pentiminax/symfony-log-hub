@@ -1,5 +1,5 @@
 import { useSearchParams } from "react-router";
-import { DEFAULT_RANGE } from "./range";
+import { DEFAULT_RANGE, isBounded } from "./range";
 
 /** Project and period selected in the shell header, read from the URL. */
 export function usePageScope() {
@@ -11,5 +11,5 @@ export function usePageScope() {
     to: params.get("to") ?? "",
   };
   const search = new URLSearchParams(Object.entries(scope).filter(([k, v]) => v && !(k === "range" && v === DEFAULT_RANGE))).toString();
-  return { ...scope, search: search ? `?${search}` : "" };
+  return { ...scope, ready: isBounded(scope), search: search ? `?${search}` : "" };
 }
