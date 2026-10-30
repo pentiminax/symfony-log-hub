@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Route, Routes } from "react-router";
 import { getKey } from "./api";
 import { Logs } from "./Logs";
+import { Overview } from "./Overview";
 import { Login } from "./Login";
 import { ProjectDetail, ProjectsList } from "./Projects";
 import { Shell } from "./Shell";
@@ -36,7 +37,7 @@ export function App() {
   return (
     <Routes>
       <Route element={<Shell />}>
-        <Route index element={<Logs />} />
+        <Route index element={<Overview />} />
         <Route path="logs" element={<Logs />} />
         <Route path="traces" element={<Traces />} />
         <Route path="traces/:traceId" element={<TraceDetail />} />

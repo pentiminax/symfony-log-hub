@@ -1,104 +1,131 @@
 import { useQuery } from "@tanstack/react-query";
-import { NavLink, Outlet, useSearchParams } from "react-router";
+import { NavLink, Outlet, useLocation, useSearchParams } from "react-router";
+import { Button } from "@/components/ui/button";
+import { DEFAULT_RANGE, RANGES } from "@/lib/range";
+import { cn } from "@/lib/utils";
 import { type Project, api, clearKey } from "./api";
 import { Icon } from "./icons";
 
+// Order is part of the product: Overview → Traces → Logs → Projects.
 const nav = [
-  { to: "/logs", label: "Logs", icon: "logs" },
+  { to: "/", label: "Overview", icon: "overview", end: true },
   { to: "/traces", label: "Traces", icon: "traces" },
+  { to: "/logs", label: "Logs", icon: "logs" },
   { to: "/projects", label: "Projects", icon: "projects" },
 ] as const;
 
+const link = "flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-body text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground aria-[current=page]:bg-sidebar-accent aria-[current=page]:font-medium aria-[current=page]:text-sidebar-accent-foreground";
+
 export function Shell() {
   const [params, setParams] = useSearchParams();
+  const { pathname } = useLocation();
   const project = params.get("project") ?? "";
+  const range = params.get("range") ?? DEFAULT_RANGE;
   const projects = useQuery({ queryKey: ["projects"], queryFn: () => api<Project[]>("/v1/projects") });
-  // Keep ?project= when moving between sections so later pages can read it.
-  const search = project ? `?project=${encodeURIComponent(project)}` : "";
+  // Project and period travel with the user from page to page.
+  const search = new URLSearchParams([...params].filter(([k]) => ["project", "range", "from", "to"].includes(k))).toString();
+  const to = (path: string) => ({ pathname: path, search: path === "/projects" ? search.replace(/(^|&)(range|from|to)=[^&]*/g, "") : search });
 
-  const links = nav.map((n) => (
-    <NavLink key={n.to} to={{ pathname: n.to, search }} className="lh-rail-link">
-      <Icon name={n.icon} /> {n.label}
-    </NavLink>
-  ));
+  const setParam = (k: string, v: string, empty = "") =>
+    setParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (v && v !== empty) next.set(k, v);
+      else next.delete(k);
+      next.delete("cursor");
+      return next;
+    });
 
-  const logout = (
-    <button type="button" onClick={clearKey} className="lh-rail-link shrink-0 p-1.5" title="Forget key">
-      <Icon name="sign-out" />
-      <span className="sr-only">Forget key</span>
-    </button>
-  );
+  const showPeriod = !/^\/(projects|traces\/)/.test(pathname);
 
   return (
-    <div className="flex h-dvh overflow-hidden">
+    <div className="flex h-dvh overflow-hidden bg-background">
       <a
         href="#main"
-        className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:rounded-control focus:bg-surface focus:px-3 focus:py-2 focus:text-body"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:rounded-md focus:bg-background focus:px-3 focus:py-2 focus:text-body"
       >
         Skip to content
       </a>
 
-      <aside className="sticky top-0 hidden h-dvh w-rail shrink-0 flex-col bg-rail md:flex">
+      <aside className="hidden h-dvh w-sidebar shrink-0 flex-col border-r border-sidebar-border bg-sidebar md:flex">
         <div className="flex items-center gap-2.5 px-4 py-4">
-          <span className="flex size-7 items-center justify-center rounded-md bg-accent text-accent-ink">
+          <span className="flex size-8 items-center justify-center rounded-md bg-primary text-primary-foreground">
             <Icon name="logs" />
           </span>
-          <span className="text-md font-semibold tracking-tight text-rail-ink-strong">LogHub</span>
+          <span className="leading-tight">
+            <span className="block text-md font-semibold tracking-tight">LogHub</span>
+            <span className="block text-micro text-muted-foreground">Logs, traces, spans</span>
+          </span>
         </div>
         <nav className="flex flex-1 flex-col gap-0.5 px-2" aria-label="Sections">
-          {links}
+          {nav.map((n) => (
+            <NavLink key={n.to} to={to(n.to)} end={"end" in n} className={link}>
+              <Icon name={n.icon} /> {n.label}
+            </NavLink>
+          ))}
         </nav>
-        <div className="border-t border-rail-line p-2">
-          <div className="flex items-center gap-2.5 px-1.5 py-1.5">
-            <span className="min-w-0 flex-1 truncate text-micro text-rail-ink">Master key</span>
-            {logout}
-          </div>
+        <div className="border-t border-sidebar-border p-2">
+          <Button variant="ghost" className="w-full justify-start gap-2.5" onClick={clearKey}>
+            <Icon name="sign-out" /> Forget master key
+          </Button>
         </div>
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <div className="flex items-center gap-2 bg-rail px-3 py-2 md:hidden">
-          <span className="flex size-6 items-center justify-center rounded bg-accent text-accent-ink">
-            <Icon name="logs" className="size-3.5" />
+        <header className="flex flex-wrap items-center gap-2 border-b border-border bg-background px-4 py-2">
+          <span className="mr-auto flex items-center gap-2 md:hidden">
+            <span className="flex size-6 items-center justify-center rounded bg-primary text-primary-foreground">
+              <Icon name="logs" className="size-3.5" />
+            </span>
+            <span className="text-body font-semibold tracking-tight">LogHub</span>
           </span>
-          <span className="flex-1 text-body font-semibold tracking-tight text-rail-ink-strong">LogHub</span>
-          {logout}
-        </div>
-        <nav className="flex gap-1 border-b border-line bg-surface px-2 py-1 md:hidden" aria-label="Sections (mobile)">
+          <span className="mr-auto hidden md:block" />
+          <label htmlFor="project-select" className="sr-only">Project</label>
+          <select id="project-select" className="lh-control min-w-36 max-w-full" value={project} onChange={(e) => setParam("project", e.target.value)}>
+            <option value="">All projects</option>
+            {projects.data?.map((p) => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+          {showPeriod && (
+            <>
+              <label htmlFor="period-select" className="sr-only">Time range</label>
+              <select id="period-select" className="lh-control" value={range} onChange={(e) => setParam("range", e.target.value, DEFAULT_RANGE)}>
+                {RANGES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              </select>
+              {range === "custom" && (
+                <>
+                  <input type="datetime-local" className="lh-control" aria-label="From" value={params.get("from") ?? ""} onChange={(e) => setParam("from", e.target.value)} />
+                  <input type="datetime-local" className="lh-control" aria-label="To" value={params.get("to") ?? ""} onChange={(e) => setParam("to", e.target.value)} />
+                </>
+              )}
+            </>
+          )}
+          <Button variant="ghost" size="icon" className="md:hidden" onClick={clearKey}>
+            <Icon name="sign-out" />
+            <span className="sr-only">Forget master key</span>
+          </Button>
+        </header>
+
+        <main id="main" className="min-h-0 min-w-0 flex-1 overflow-y-auto pb-[calc(4.25rem+env(safe-area-inset-bottom))] md:pb-0">
+          <Outlet />
+        </main>
+
+        <nav
+          className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t border-border bg-background pb-[env(safe-area-inset-bottom)] md:hidden"
+          aria-label="Sections (mobile)"
+        >
           {nav.map((n) => (
-            <NavLink key={n.to} to={{ pathname: n.to, search }} className="lh-tab !border-b-0 aria-[current=page]:font-medium aria-[current=page]:text-ink">
+            <NavLink
+              key={n.to}
+              to={to(n.to)}
+              end={"end" in n}
+              className={cn("flex min-h-14 flex-col items-center justify-center gap-0.5 text-micro text-muted-foreground aria-[current=page]:font-medium aria-[current=page]:text-foreground")}
+            >
+              <Icon name={n.icon} className="size-5" />
               {n.label}
             </NavLink>
           ))}
         </nav>
-
-        <header className="flex items-center gap-3 border-b border-line bg-surface px-4 py-2">
-          <label htmlFor="project-select" className="text-label font-medium text-ink-muted">
-            Project
-          </label>
-          <select
-            id="project-select"
-            className="lh-control min-w-48"
-            value={project}
-            onChange={(e) => {
-              const next = new URLSearchParams(params);
-              if (e.target.value) next.set("project", e.target.value);
-              else next.delete("project");
-              setParams(next);
-            }}
-          >
-            <option value="">All projects</option>
-            {projects.data?.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-        </header>
-
-        <main id="main" className="min-h-0 min-w-0 flex-1 overflow-y-auto">
-          <Outlet />
-        </main>
       </div>
     </div>
   );

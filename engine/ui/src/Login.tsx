@@ -31,7 +31,7 @@ export function Login({ onLogin }: { onLogin: (key: string) => void }) {
     <main className="flex min-h-dvh flex-col items-center justify-center px-4 py-10">
       <div className="w-full max-w-[22rem]">
         <div className="mb-6 flex items-center gap-2.5">
-          <span className="flex size-8 items-center justify-center rounded-md bg-rail text-rail-ink-strong">
+          <span className="flex size-8 items-center justify-center rounded-md bg-primary text-primary-foreground">
             <Icon name="logs" className="size-[18px]" />
           </span>
           <span className="text-xl font-semibold tracking-tight">LogHub</span>

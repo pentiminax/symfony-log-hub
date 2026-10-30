@@ -1,5 +1,10 @@
 /* LogHub design system, ported as-is from the Symfony app. */
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/geist";
+
+@custom-variant dark (&:is(.dark *));
 
 @theme {
     /* --- Type -------------------------------------------------------------
@@ -18,36 +23,26 @@
     --text-lg: 1.0625rem;     /* 17px - page title */
     --text-xl: 1.1875rem;     /* 19px - login heading */
 
-    /* --- Rail -------------------------------------------------------------
-       A near-black column is the spatial anchor: it never scrolls, so the eye
-       always knows where the page starts. */
-    --color-rail: oklch(0.17 0.008 265);
-    --color-rail-raised: oklch(0.23 0.009 265);
-    --color-rail-active: oklch(0.28 0.012 265);
-    --color-rail-line: oklch(0.28 0.008 265);
-    --color-rail-ink: oklch(0.74 0.008 265);
-    --color-rail-ink-strong: oklch(0.98 0.001 265);
-    --color-rail-ink-faint: oklch(0.55 0.008 265);
 
     /* --- Content ---------------------------------------------------------- */
-    --color-canvas: oklch(0.985 0.001 265);
+    --color-canvas: oklch(0.985 0 0);
     --color-surface: oklch(1 0 0);
-    --color-sunken: oklch(0.972 0.002 265);
-    --color-ink: oklch(0.24 0.01 265);
-    --color-ink-muted: oklch(0.53 0.012 265);
-    --color-ink-faint: oklch(0.66 0.01 265);
+    --color-sunken: oklch(0.972 0 0);
+    --color-ink: oklch(0.24 0 0);
+    --color-ink-muted: oklch(0.53 0 0);
+    --color-ink-faint: oklch(0.66 0 0);
 
     /* Hairlines: Tailwind's neutral-200 reads as a bar at 1px on white. */
-    --color-line: oklch(0.928 0.004 265);
-    --color-line-strong: oklch(0.87 0.005 265);
+    --color-line: oklch(0.928 0 0);
+    --color-line-strong: oklch(0.87 0 0);
 
     /* --- Accent ------------------------------------------------------------
        Primary action, current selection and focus. Never decoration. */
-    --color-accent: oklch(0.55 0.196 259);
-    --color-accent-hover: oklch(0.49 0.196 259);
-    --color-accent-ink: oklch(0.99 0 0);
-    --color-accent-tint: oklch(0.962 0.022 259);
-    --color-accent-line: oklch(0.86 0.06 259);
+    --color-brand: oklch(0.55 0.196 259);
+    --color-brand-hover: oklch(0.49 0.196 259);
+    --color-brand-ink: oklch(0.99 0 0);
+    --color-brand-tint: oklch(0.962 0.022 259);
+    --color-brand-line: oklch(0.86 0.06 259);
 
     /* --- Severity ----------------------------------------------------------
        Pastille (dot) + tinted badge + AA text. Colour never carries the meaning
@@ -78,7 +73,7 @@
 
     /* --- Density ----------------------------------------------------------- */
     --spacing-row: 2rem;      /* 32px table row */
-    --spacing-rail: 12.5rem;  /* 200px rail */
+    --spacing-sidebar: 14.375rem;  /* 230px, as designed */
     --spacing-control: 2rem;  /* 32px control height, matches the row */
 
     --radius-control: 0.375rem;
@@ -94,6 +89,7 @@
 @layer base {
     html {
         -webkit-text-size-adjust: 100%;
+    @apply font-sans;
     }
 
     body {
@@ -103,17 +99,18 @@
         font-size: var(--text-body);
         line-height: 1.45;
         -webkit-font-smoothing: antialiased;
+    @apply bg-background text-foreground;
     }
 
     /* Focus must be visible everywhere, on every interactive element. */
     :focus-visible {
-        outline: 2px solid var(--color-accent);
+        outline: 2px solid var(--color-brand);
         outline-offset: 2px;
         border-radius: var(--radius-control);
     }
 
     ::selection {
-        background-color: var(--color-accent-tint);
+        background-color: var(--color-brand-tint);
     }
 
     /* Data is read in columns: digits must not dance between rows. */
@@ -131,6 +128,9 @@
             transition-duration: 0.01ms !important;
             animation-duration: 0.01ms !important;
         }
+    }
+  * {
+    @apply border-border outline-ring/50;
     }
 }
 
@@ -168,11 +168,11 @@
     }
 
     .lh-button-primary {
-        @apply bg-accent text-accent-ink;
+        @apply bg-primary text-primary-foreground;
     }
 
     .lh-button-primary:hover:not(:disabled) {
-        @apply bg-accent-hover;
+        @apply bg-primary/85;
     }
 
     .lh-button-quiet {
@@ -252,7 +252,7 @@
     }
 
     .lh-tab[aria-selected="true"] {
-        @apply border-accent font-medium text-ink;
+        @apply border-brand font-medium text-ink;
     }
 
     /* Row affordances stay invisible until the row is hovered or focused, so a
@@ -270,22 +270,116 @@
         @apply bg-debug-tint text-debug-ink;
     }
 
-    /* --- Rail -------------------------------------------------------------- */
-    .lh-rail-link {
-        @apply flex items-center gap-2.5 rounded-control px-2.5 py-1.5 text-body
-               text-rail-ink transition-colors;
-        transition-duration: var(--duration-state);
-    }
+}
 
-    .lh-rail-link:hover {
-        @apply bg-rail-raised text-rail-ink-strong;
-    }
+@theme inline {
+    --font-heading: var(--font-sans);
+    --font-sans: 'Geist Variable', sans-serif;
+    --color-sidebar-ring: var(--sidebar-ring);
+    --color-sidebar-border: var(--sidebar-border);
+    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    --color-sidebar-accent: var(--sidebar-accent);
+    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+    --color-sidebar-primary: var(--sidebar-primary);
+    --color-sidebar-foreground: var(--sidebar-foreground);
+    --color-sidebar: var(--sidebar);
+    --color-chart-5: var(--chart-5);
+    --color-chart-4: var(--chart-4);
+    --color-chart-3: var(--chart-3);
+    --color-chart-2: var(--chart-2);
+    --color-chart-1: var(--chart-1);
+    --color-ring: var(--ring);
+    --color-input: var(--input);
+    --color-border: var(--border);
+    --color-destructive: var(--destructive);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-accent: var(--accent);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-muted: var(--muted);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-secondary: var(--secondary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-primary: var(--primary);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-popover: var(--popover);
+    --color-card-foreground: var(--card-foreground);
+    --color-card: var(--card);
+    --color-foreground: var(--foreground);
+    --color-background: var(--background);
+    --radius-sm: calc(var(--radius) * 0.6);
+    --radius-md: calc(var(--radius) * 0.8);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) * 1.4);
+    --radius-2xl: calc(var(--radius) * 1.8);
+    --radius-3xl: calc(var(--radius) * 2.2);
+    --radius-4xl: calc(var(--radius) * 2.6);
+}
 
-    .lh-rail-link[aria-current="page"] {
-        @apply bg-rail-active text-rail-ink-strong;
-    }
+:root {
+    --background: oklch(1 0 0);
+    --foreground: oklch(0.145 0 0);
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.145 0 0);
+    --popover: oklch(1 0 0);
+    --popover-foreground: oklch(0.145 0 0);
+    --primary: oklch(0.205 0 0);
+    --primary-foreground: oklch(0.985 0 0);
+    --secondary: oklch(0.97 0 0);
+    --secondary-foreground: oklch(0.205 0 0);
+    --muted: oklch(0.97 0 0);
+    --muted-foreground: oklch(0.556 0 0);
+    --accent: oklch(0.97 0 0);
+    --accent-foreground: oklch(0.205 0 0);
+    --destructive: oklch(0.577 0.245 27.325);
+    --border: oklch(0.922 0 0);
+    --input: oklch(0.922 0 0);
+    --ring: oklch(0.708 0 0);
+    --chart-1: oklch(0.87 0 0);
+    --chart-2: oklch(0.556 0 0);
+    --chart-3: oklch(0.439 0 0);
+    --chart-4: oklch(0.371 0 0);
+    --chart-5: oklch(0.269 0 0);
+    --radius: 0.625rem;
+    --sidebar: oklch(0.985 0 0);
+    --sidebar-foreground: oklch(0.145 0 0);
+    --sidebar-primary: oklch(0.205 0 0);
+    --sidebar-primary-foreground: oklch(0.985 0 0);
+    --sidebar-accent: oklch(0.97 0 0);
+    --sidebar-accent-foreground: oklch(0.205 0 0);
+    --sidebar-border: oklch(0.922 0 0);
+    --sidebar-ring: oklch(0.708 0 0);
+}
 
-    .lh-rail-link[aria-disabled="true"] {
-        @apply cursor-default text-rail-ink-faint hover:bg-transparent hover:text-rail-ink-faint;
-    }
+.dark {
+    --background: oklch(0.145 0 0);
+    --foreground: oklch(0.985 0 0);
+    --card: oklch(0.205 0 0);
+    --card-foreground: oklch(0.985 0 0);
+    --popover: oklch(0.205 0 0);
+    --popover-foreground: oklch(0.985 0 0);
+    --primary: oklch(0.922 0 0);
+    --primary-foreground: oklch(0.205 0 0);
+    --secondary: oklch(0.269 0 0);
+    --secondary-foreground: oklch(0.985 0 0);
+    --muted: oklch(0.269 0 0);
+    --muted-foreground: oklch(0.708 0 0);
+    --accent: oklch(0.269 0 0);
+    --accent-foreground: oklch(0.985 0 0);
+    --destructive: oklch(0.704 0.191 22.216);
+    --border: oklch(1 0 0 / 10%);
+    --input: oklch(1 0 0 / 15%);
+    --ring: oklch(0.556 0 0);
+    --chart-1: oklch(0.87 0 0);
+    --chart-2: oklch(0.556 0 0);
+    --chart-3: oklch(0.439 0 0);
+    --chart-4: oklch(0.371 0 0);
+    --chart-5: oklch(0.269 0 0);
+    --sidebar: oklch(0.205 0 0);
+    --sidebar-foreground: oklch(0.985 0 0);
+    --sidebar-primary: oklch(0.488 0.243 264.376);
+    --sidebar-primary-foreground: oklch(0.985 0 0);
+    --sidebar-accent: oklch(0.269 0 0);
+    --sidebar-accent-foreground: oklch(0.985 0 0);
+    --sidebar-border: oklch(1 0 0 / 10%);
+    --sidebar-ring: oklch(0.556 0 0);
 }

@@ -2,6 +2,10 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { ApiError, api } from "./api";
+import { Severity, LEVELS, cap } from "@/components/Severity";
+import { StateView } from "@/components/StateView";
+import { resolveRange } from "@/lib/range";
+import { scopeBase } from "@/lib/scope";
 import { Icon } from "./icons";
 
 // ---- Types & constants -------------------------------------------------------
@@ -25,41 +29,13 @@ type Filter = { field: string; op: string; value: string };
 
 const PER_PAGE = 50;
 const COUNT_CAP = 10_000;
-const RANGES = [
-  ["15m", "Last 15 minutes", 15 * 60e3],
-  ["1h", "Last 1 hour", 3600e3],
-  ["24h", "Last 24 hours", 24 * 3600e3],
-  ["7d", "Last 7 days", 7 * 24 * 3600e3],
-  ["custom", "Custom range", 0],
-] as const;
-// Inclusive OpenTelemetry severity bands (same as the Symfony app).
-const LEVELS = [
-  ["trace", [1, 4]],
-  ["debug", [5, 8]],
-  ["info", [9, 12]],
-  ["warn", [13, 16]],
-  ["error", [17, 20]],
-  ["fatal", [21, 24]],
-] as const;
 const FACETS = [
   ["service.name", "service", "Service"],
   ["environment", "env", "Environment"],
   ["channel", "channel", "Channel"],
 ] as const;
 
-const levelOf = (n: number) => LEVELS[n <= 4 ? 0 : n <= 8 ? 1 : n <= 12 ? 2 : n <= 16 ? 3 : n <= 20 ? 4 : 5][0];
-const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
 const str = (v: Json) => (typeof v === "string" ? v : JSON.stringify(v));
-
-function Severity({ n }: { n: number }) {
-  const l = levelOf(n);
-  return (
-    <span className={`lh-severity lh-severity-${l}`}>
-      <span className={`lh-severity-dot lh-severity-dot-${l}`} />
-      {cap(l)}
-    </span>
-  );
-}
 
 // ---- URL state ---------------------------------------------------------------
 
@@ -82,6 +58,7 @@ function useExplorerState() {
     channel: get("channel"),
     sort: get("sort") === "asc" ? "asc" : "desc",
     log: get("log"),
+    logProject: get("logp"),
     columns: params.getAll("col"),
     filters,
   };
@@ -111,7 +88,7 @@ function useExplorerState() {
   const clearFilters = () =>
     update((p) => ["f", "level", "service", "env", "channel", "q"].forEach((k) => p.delete(k)));
   const reset = () =>
-    update((p) => ["f", "level", "service", "env", "channel", "q", "range", "from", "to", "sort", "log"].forEach((k) => p.delete(k)));
+    update((p) => ["f", "level", "service", "env", "channel", "q", "range", "from", "to", "sort", "log", "logp"].forEach((k) => p.delete(k)));
   const addColumn = (c: string) => update((p) => !p.getAll("col").includes(c) && p.append("col", c));
   const removeColumn = (c: string) =>
     update((p) => {
@@ -124,17 +101,6 @@ function useExplorerState() {
 type Explorer = ReturnType<typeof useExplorerState>;
 
 // ---- Engine query building ---------------------------------------------------
-
-function resolveRange(s: Pick<Explorer, "range" | "from" | "to">) {
-  const iso = (v: string) => {
-    const d = new Date(v);
-    return v && !Number.isNaN(d.getTime()) ? d.toISOString() : null;
-  };
-  if (s.range === "custom") return { from: iso(s.from), to: iso(s.to) };
-  const ms = RANGES.find((r) => r[0] === s.range)?.[2] ?? RANGES[2][2];
-  const now = Date.now();
-  return { from: new Date(now - ms).toISOString(), to: new Date(now).toISOString() };
-}
 
 function engineFilters(s: Explorer) {
   const out: { field: string; operator: string; value?: unknown }[] = s.filters.map((f) => ({
@@ -171,14 +137,6 @@ export function Logs() {
     return () => clearTimeout(t);
   });
 
-  if (!s.project) {
-    return (
-      <Empty icon="projects" title="Pick a project">
-        Logs are stored per project. Choose one in the selector above to explore its logs.
-      </Empty>
-    );
-  }
-
   const hasFilters = s.filters.length > 0 || !!(s.level || s.service || s.env || s.channel);
   const sel = (id: string, label: string, value: string, prop: string, children: ReactNode, disabled = false) => (
     <>
@@ -187,7 +145,7 @@ export function Logs() {
       </label>
       <select
         id={id}
-        className={`lh-control pr-1.5 ${value && prop !== "range" ? "border-accent-line bg-accent-tint" : ""}`}
+        className={`lh-control pr-1.5 ${value && prop !== "range" ? "border-brand-line bg-brand-tint" : ""}`}
         value={value}
         disabled={disabled}
         onChange={(e) => s.set(prop, e.target.value)}
@@ -201,13 +159,6 @@ export function Logs() {
     <div className="flex min-h-full flex-col">
       <header className="flex flex-wrap items-center gap-3 px-4 pt-4 pb-3 sm:px-6">
         <h1 className="mr-auto text-lg font-semibold tracking-tight">Logs</h1>
-        {sel("lh-range", "Time range", s.range, "range", RANGES.map(([v, l]) => <option key={v} value={v}>{l}</option>))}
-        {s.range === "custom" && (
-          <>
-            <input type="datetime-local" className="lh-control" aria-label="From" value={s.from} onChange={(e) => s.set("from", e.target.value, true)} />
-            <input type="datetime-local" className="lh-control" aria-label="To" value={s.to} onChange={(e) => s.set("to", e.target.value, true)} />
-          </>
-        )}
         <label className="lh-control gap-1.5 pr-2.5" title="Auto-refresh">
           <span className="sr-only">Auto-refresh</span>
           <select className="bg-transparent text-body outline-none" value={refreshMs} onChange={(e) => setRefreshMs(Number(e.target.value))}>
@@ -246,11 +197,11 @@ export function Logs() {
           <FacetSelect key={prop} s={s} field={field} prop={prop} label={label} sel={sel} />
         ))}
         {s.filters.map((f) => (
-          <span key={`${f.field}|${f.op}|${f.value}`} className="lh-control gap-1.5 border-accent-line bg-accent-tint pr-1.5 text-accent">
+          <span key={`${f.field}|${f.op}|${f.value}`} className="lh-control gap-1.5 border-brand-line bg-brand-tint pr-1.5 text-brand">
             <span className="font-mono text-micro">{f.field}</span>
             <span className="text-ink-muted">{f.op === "not_equals" ? "is not" : "is"}</span>
             <span className="max-w-40 truncate font-mono text-micro">{f.value}</span>
-            <button type="button" className="shrink-0 rounded p-0.5 hover:bg-accent-line/40" onClick={() => s.removeFilter(f)}>
+            <button type="button" className="shrink-0 rounded p-0.5 hover:bg-brand-line/40" onClick={() => s.removeFilter(f)}>
               <Icon name="close" className="size-3" />
               <span className="sr-only">Remove this filter</span>
             </button>
@@ -283,7 +234,7 @@ function FacetSelect({ s, field, prop, label, sel }: {
       const qs = new URLSearchParams();
       if (r.from) qs.set("from", r.from);
       if (r.to) qs.set("to", r.to);
-      return api<{ values: string[] }>(`/v1/projects/${s.project}/logs/facets/${field}?${qs}`);
+      return api<{ values: string[] }>(`${scopeBase(s.project)}/logs/facets/${field}?${qs}`);
     },
   });
   const values = facet.data?.values ?? [];
@@ -311,7 +262,7 @@ function Results({ s, refreshMs, hasFilters }: { s: Explorer; refreshMs: number;
   const search = useQuery({
     queryKey: ["logs", identity, cursor],
     queryFn: () =>
-      api<SearchResult>(`/v1/projects/${s.project}/logs/search`, {
+      api<SearchResult>(`${scopeBase(s.project)}/logs/search`, {
         method: "POST",
         body: { ...queryBody(s), sort: { field: "timestamp", direction: s.sort }, limit: PER_PAGE, ...(cursor ? { cursor } : {}) },
       }),
@@ -321,7 +272,7 @@ function Results({ s, refreshMs, hasFilters }: { s: Explorer; refreshMs: number;
   });
   const count = useQuery({
     queryKey: ["logs-count", identity],
-    queryFn: () => api<{ count: number }>(`/v1/projects/${s.project}/logs/count`, { method: "POST", body: { ...queryBody(s), max: COUNT_CAP } }),
+    queryFn: () => api<{ count: number }>(`${scopeBase(s.project)}/logs/count`, { method: "POST", body: { ...queryBody(s), max: COUNT_CAP } }),
     enabled: !search.error,
     placeholderData: keepPreviousData,
     refetchInterval: refreshMs > 0 && cursors.length === 0 ? refreshMs : false,
@@ -365,15 +316,10 @@ function Results({ s, refreshMs, hasFilters }: { s: Explorer; refreshMs: number;
         </div>
       </div>
 
-      {err && (
-        <div role="alert" className="mx-4 mb-3 flex items-start gap-2.5 rounded-panel bg-error-tint px-3 py-2.5 text-body text-error-ink sm:mx-6">
-          <Icon name="alert" className="mt-px size-4 shrink-0" />
-          <span>{err}</span>
-        </div>
-      )}
+      {err && <StateView kind="error" title="Unable to load logs" action={{ label: "Try again", onClick: () => search.refetch() }}>{err}</StateView>}
 
       {/* relative: the rows' absolutely positioned sr-only labels must not overflow the page on narrow screens. */}
-      <div className="relative min-h-0 flex-1 overflow-x-auto border-t border-line">
+      <div className="relative hidden min-h-0 flex-1 overflow-x-auto border-t border-line md:block">
         <table className="w-full min-w-3xl border-collapse text-body">
           <thead className="sticky top-0 z-10 bg-canvas/95 backdrop-blur">
             <tr className="border-b border-line text-left text-label text-ink-muted">
@@ -399,16 +345,35 @@ function Results({ s, refreshMs, hasFilters }: { s: Explorer; refreshMs: number;
             {records.map((r) => (
               <Row key={r.id} r={r} s={s} />
             ))}
-            {records.length === 0 && !err && !search.isPending && (
-              <tr>
-                <td colSpan={5 + s.columns.length}>
-                  <EmptyTable rangeEmpty={!hasFilters && !s.q} onClear={s.clearFilters} />
-                </td>
-              </tr>
-            )}
           </tbody>
         </table>
       </div>
+
+      <ul className="divide-y divide-border border-y border-border md:hidden" aria-label="Logs">
+        {records.map((r) => {
+          const service = lookup(r.resource, "service.name");
+          return (
+            <li key={r.id}>
+              <button
+                type="button"
+                className="flex w-full flex-col gap-1 px-4 py-3 text-left active:bg-muted"
+                onClick={() => s.update((p) => { p.set("log", r.id); if (!s.project) p.set("logp", r.project_id); })}
+              >
+                <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <Severity n={r.severity.number} />
+                  <time className="tnum text-label text-muted-foreground" dateTime={r.timestamp}>
+                    {new Date(r.timestamp).toLocaleString("en-US", { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}
+                  </time>
+                  {service != null && <span className="truncate text-label text-muted-foreground">{str(service)}</span>}
+                </span>
+                <span className="line-clamp-3 break-words font-mono text-body">{r.message}</span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+
+      {records.length === 0 && !err && !search.isPending && <EmptyTable rangeEmpty={!hasFilters && !s.q} onClear={s.clearFilters} />}
 
       {(search.data?.has_more || cursors.length > 0) && (
         <div className="flex items-center justify-end gap-2 border-t border-line px-4 py-2.5 sm:px-6">
@@ -448,11 +413,11 @@ function Row({ r, s }: { r: Log; s: Explorer }) {
   const d = new Date(r.timestamp);
   const service = lookup(r.resource, "service.name");
   const filtered = s.filters.some((f) => f.field === "message" && f.op === "equals" && f.value === r.message);
-  const open = () => s.set("log", r.id);
+  const open = () => s.update((p) => { p.set("log", r.id); if (!s.project) p.set("logp", r.project_id); });
   const filterLabel = filtered ? "Remove filter" : "Filter for this value";
   return (
     <tr
-      className={`group h-row cursor-pointer border-b border-line/70 align-middle transition-colors hover:bg-sunken ${s.log === r.id ? "bg-accent-tint hover:bg-accent-tint" : ""}`}
+      className={`group h-row cursor-pointer border-b border-line/70 align-middle transition-colors hover:bg-sunken ${s.log === r.id ? "bg-brand-tint hover:bg-brand-tint" : ""}`}
       onClick={open}
     >
       <td className="truncate px-4 py-0 sm:px-6">
@@ -493,26 +458,13 @@ function Row({ r, s }: { r: Log; s: Explorer }) {
   );
 }
 
-function Empty({ icon, title, children }: { icon: "projects" | "inbox" | "search"; title: string; children: ReactNode }) {
-  return (
-    <div className="mx-auto flex max-w-sm flex-col items-center gap-2 px-6 py-16 text-center">
-      <span className="flex size-10 items-center justify-center rounded-full bg-sunken text-ink-faint">
-        <Icon name={icon} className="size-5" />
-      </span>
-      <p className="text-md font-medium text-ink">{title}</p>
-      <p className="text-body text-ink-muted">{children}</p>
-    </div>
-  );
-}
-
 function EmptyTable({ rangeEmpty, onClear }: { rangeEmpty: boolean; onClear: () => void }) {
   return rangeEmpty ? (
-    <Empty icon="inbox" title="No logs in this time range">Widen the range, or check that your application is sending logs to this project.</Empty>
+    <StateView kind="empty" icon="inbox" title="No logs found">Widen the time range, or check that your application is sending logs.</StateView>
   ) : (
-    <div className="flex flex-col items-center">
-      <Empty icon="search" title="No logs match your filters">Try removing a filter or clearing the search.</Empty>
-      <button type="button" className="lh-button lh-button-quiet -mt-10 mb-12" onClick={onClear}>Clear all filters</button>
-    </div>
+    <StateView kind="empty" icon="search" title="No logs match your filters" action={{ label: "Clear filters", onClick: onClear }}>
+      Try removing a filter or clearing the search.
+    </StateView>
   );
 }
 
@@ -581,13 +533,13 @@ function Detail({ label, value, field, s, filterable = true }: { label: string; 
 function Drawer({ s }: { s: Explorer }) {
   const ref = useRef<HTMLDialogElement>(null);
   const [tab, setTab] = useState<(typeof TABS)[number][0]>("overview");
-  const close = () => s.set("log", "");
+  const close = () => s.update((p) => ["log", "logp"].forEach((k) => p.delete(k)));
   const closeRef = useRef(close);
   closeRef.current = close;
 
   const q = useQuery({
-    queryKey: ["log", s.project, s.log],
-    queryFn: () => api<Log>(`/v1/projects/${s.project}/logs/${s.log}`),
+    queryKey: ["log", s.project || s.logProject, s.log],
+    queryFn: () => api<Log>(`${scopeBase(s.project || s.logProject)}/logs/${s.log}`),
   });
 
   // showModal() gives the focus trap, top layer and focus restore. Layout effect: its cleanup runs
@@ -635,7 +587,7 @@ function Drawer({ s }: { s: Explorer }) {
       ref={ref}
       aria-label="Log details"
       tabIndex={-1}
-      className="lh-drawer m-0 ml-auto h-dvh max-h-dvh w-full max-w-none border-l border-line bg-surface p-0 text-ink backdrop:bg-rail/25 sm:w-[46rem] sm:max-w-[92vw]"
+      className="lh-drawer m-0 ml-auto h-dvh max-h-dvh w-full max-w-none border-l border-line bg-surface p-0 text-ink backdrop:bg-black/25 sm:w-[46rem] sm:max-w-[92vw]"
       onCancel={(e) => { e.preventDefault(); close(); }}
       onClick={(e) => e.target === ref.current && close()}
     >
@@ -715,7 +667,7 @@ function Drawer({ s }: { s: Explorer }) {
                   <Detail s={s} label="trace.id" value={r.trace_id} field="trace.id" />
                   <Detail s={s} label="span.id" value={r.span_id ?? "—"} field={r.span_id ? "span.id" : undefined} />
                   <p className="px-5 py-3">
-                    <Link className="text-accent underline" to={`/traces/${r.trace_id}?project=${encodeURIComponent(s.project)}`}>View this trace</Link>
+                    <Link className="text-brand underline" to={`/traces/${r.trace_id}?project=${encodeURIComponent(s.project || r.project_id)}`}>View this trace</Link>
                   </p>
                 </>
               ) : (

@@ -13,7 +13,9 @@ use uuid::Uuid;
 use crate::{
     ApiJson, ApiPath, AppState,
     error::ApiError,
-    search::{Filter, Kind, Range, Target, check_range, invalid, push_filter, push_range},
+    search::{
+        Filter, Kind, Range, Target, check_range, invalid, push_filter, push_range, push_scope,
+    },
 };
 
 const MAX_LIMIT: i64 = 200;
@@ -77,6 +79,7 @@ fn default_limit() -> i64 {
 
 #[derive(FromRow)]
 struct TraceRow {
+    project_id: Uuid,
     trace_id: String,
     start_time: DateTime<Utc>,
     duration_ns: i64,
@@ -93,29 +96,45 @@ pub async fn search(
     ApiPath(project_id): ApiPath<Uuid>,
     ApiJson(q): ApiJson<SearchRequest>,
 ) -> Result<Json<Value>, ApiError> {
+    search_in(s, Some(project_id), q).await
+}
+
+pub async fn search_all(
+    State(s): State<AppState>,
+    ApiJson(q): ApiJson<SearchRequest>,
+) -> Result<Json<Value>, ApiError> {
+    search_in(s, None, q).await
+}
+
+/// `project_id: None` is the all-projects scope; traces are then keyed by (project, trace id).
+async fn search_in(
+    s: AppState,
+    project_id: Option<Uuid>,
+    q: SearchRequest,
+) -> Result<Json<Value>, ApiError> {
     if !(1..=MAX_LIMIT).contains(&q.limit) {
         return Err(invalid(format!("limit must be between 1 and {MAX_LIMIT}")));
     }
     check_range(&q.range)?;
 
     let mut qb = QueryBuilder::new(
-        "SELECT trace_id, min(start_time) AS start_time, \
+        "SELECT project_id, trace_id, min(start_time) AS start_time, \
          (extract(epoch FROM max(end_time) - min(start_time)) * 1000000000)::bigint AS duration_ns, \
          count(*) AS span_count, count(*) FILTER (WHERE status_code = 2) AS error_count, \
          array_agg(DISTINCT service_name) AS services, \
          (array_agg(span_id ORDER BY start_time) FILTER (WHERE parent_span_id IS NULL))[1] AS root_span_id, \
          (array_agg(name ORDER BY start_time) FILTER (WHERE parent_span_id IS NULL))[1] AS root_name, \
          (array_agg(service_name ORDER BY start_time) FILTER (WHERE parent_span_id IS NULL))[1] AS root_service \
-         FROM spans WHERE project_id = ",
+         FROM spans WHERE TRUE",
     );
-    qb.push_bind(project_id)
-        .push(" AND trace_id IN (SELECT trace_id FROM spans WHERE project_id = ")
-        .push_bind(project_id);
+    push_scope(&mut qb, project_id);
+    qb.push(" AND (project_id, trace_id) IN (SELECT project_id, trace_id FROM spans WHERE TRUE");
+    push_scope(&mut qb, project_id);
     push_range(&mut qb, &q.range, "start_time");
     for f in &q.filters {
         push_filter(&mut qb, f, resolve)?;
     }
-    qb.push(") GROUP BY trace_id");
+    qb.push(") GROUP BY project_id, trace_id");
     if let Some(c) = &q.cursor {
         qb.push(" HAVING (min(start_time), trace_id) < (")
             .push_bind(c.start_time)
@@ -138,6 +157,7 @@ pub async fn search(
         .into_iter()
         .map(|r| {
             json!({
+                "project_id": r.project_id,
                 "trace_id": r.trace_id,
                 "root": r.root_span_id.map(|id| json!({
                     "span_id": id, "name": r.root_name, "service_name": r.root_service,

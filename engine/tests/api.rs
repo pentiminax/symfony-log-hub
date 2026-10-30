@@ -907,3 +907,149 @@ async fn retention_purges_only_expired_logs(pool: PgPool) {
     assert_eq!(left, ["fresh"]);
     assert_eq!(retention::purge_expired(&app.pool, 14).await.unwrap(), 0);
 }
+
+#[sqlx::test]
+async fn histogram_buckets_include_empty_ones_and_apply_filters(pool: PgPool) {
+    let (app, project) = seeded(pool).await;
+    let path = format!("/v1/projects/{project}/logs/histogram");
+    let hist = |body: Value| {
+        let path = path.clone();
+        let app = &app;
+        async move { app.admin(Method::POST, &path, Some(body)).await }
+    };
+
+    // 10:00:00..04 -> sev 9, 9, 17, 13, 21; 2s buckets over [00, 05]: the 5 s range gives
+    // 3 buckets, the row at :04 sits in the last one.
+    let (st, v) = hist(json!({"range": {"from": "2026-09-05T10:00:00Z", "to": "2026-09-05T10:00:05Z"}, "interval": 2})).await;
+    assert_eq!(st, StatusCode::OK, "{v}");
+    assert_eq!(
+        v["buckets"],
+        json!([
+            {"t": "2026-09-05T10:00:00Z", "total": 2, "errors": 0},
+            {"t": "2026-09-05T10:00:02Z", "total": 2, "errors": 1},
+            {"t": "2026-09-05T10:00:04Z", "total": 1, "errors": 1},
+        ])
+    );
+
+    // Empty buckets are zeros; filters from logs/search apply.
+    let (_, v) = hist(json!({
+        "range": {"from": "2026-09-05T09:59:58Z", "to": "2026-09-05T10:00:04Z"},
+        "interval": 2,
+        "filters": [{"field": "service.name", "operator": "equals", "value": "web"}],
+    }))
+    .await;
+    let totals: Vec<i64> = v["buckets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|b| b["total"].as_i64().unwrap())
+        .collect();
+    assert_eq!(totals, [0, 1, 1]);
+
+    // Limits and validation.
+    for body in [
+        json!({"range": {"from": "2026-09-05T10:00:00Z", "to": "2026-09-05T10:00:05Z"}, "interval": 0}),
+        json!({"range": {"from": "2026-09-05T10:00:00Z", "to": "2026-09-05T10:00:05Z"}, "interval": 86401}),
+        json!({"range": {"from": "2026-09-05T10:00:00Z"}, "interval": 60}),
+        json!({"range": {"from": "2026-09-05T10:00:00Z", "to": "2026-09-05T10:00:05Z"}}),
+        // 1001 one-second buckets
+        json!({"range": {"from": "2026-09-05T10:00:00Z", "to": "2026-09-05T10:16:41Z"}, "interval": 1}),
+        json!({"range": {"from": "2026-09-05T10:00:05Z", "to": "2026-09-05T10:00:00Z"}, "interval": 1}),
+    ] {
+        let (st, v) = hist(body.clone()).await;
+        assert_eq!(st, StatusCode::UNPROCESSABLE_ENTITY, "{body} -> {v}");
+    }
+    // Exactly 1000 buckets is accepted.
+    let (st, v) = hist(json!({"range": {"from": "2026-09-05T10:00:00Z", "to": "2026-09-05T10:16:40Z"}, "interval": 1})).await;
+    assert_eq!(st, StatusCode::OK);
+    assert_eq!(v["buckets"].as_array().unwrap().len(), 1000);
+}
+
+#[sqlx::test]
+async fn all_projects_routes_aggregate_and_require_master_key(pool: PgPool) {
+    let app = app(pool).await;
+    let (p1, k1) = app.project().await;
+    let (p2, k2) = app.project().await;
+    for (key, msg, sev, svc) in [(&k1, "one", 9, "billing"), (&k2, "two", 17, "web")] {
+        let (st, _) = app
+            .post_logs(
+                Some(key),
+                json!({"records": [rec("2026-09-05T10:00:00Z", sev, msg, svc, json!({}))]}),
+            )
+            .await;
+        assert_eq!(st, StatusCode::ACCEPTED);
+    }
+
+    let (_, v) = app
+        .admin(Method::POST, "/v1/logs/search", Some(json!({})))
+        .await;
+    let recs = v["records"].as_array().unwrap();
+    assert_eq!(recs.len(), 2);
+    let mut pids: Vec<&str> = recs
+        .iter()
+        .map(|r| r["project_id"].as_str().unwrap())
+        .collect();
+    pids.sort();
+    let mut expected = [p1.as_str(), p2.as_str()];
+    expected.sort();
+    assert_eq!(pids, expected);
+
+    let (_, v) = app
+        .admin(
+            Method::POST,
+            "/v1/logs/search",
+            Some(json!({"search": "two"})),
+        )
+        .await;
+    assert_eq!(v["records"][0]["project_id"], p2);
+
+    let (_, v) = app
+        .admin(Method::POST, "/v1/logs/count", Some(json!({})))
+        .await;
+    assert_eq!(v["count"], 2);
+
+    let (_, v) = app
+        .admin(Method::GET, "/v1/logs/facets/service.name", None)
+        .await;
+    assert_eq!(v["values"], json!(["billing", "web"]));
+
+    let (_, v) = app
+        .admin(
+            Method::POST,
+            "/v1/logs/histogram",
+            Some(json!({"range": {"from": "2026-09-05T10:00:00Z", "to": "2026-09-05T10:01:00Z"}, "interval": 60})),
+        )
+        .await;
+    assert_eq!(
+        v["buckets"],
+        json!([{"t": "2026-09-05T10:00:00Z", "total": 2, "errors": 1}])
+    );
+
+    // Auth: no token and a project key are both refused.
+    for (method, path) in [
+        (Method::POST, "/v1/logs/search"),
+        (Method::POST, "/v1/logs/count"),
+        (Method::POST, "/v1/logs/histogram"),
+        (Method::GET, "/v1/logs/facets/service.name"),
+        (Method::POST, "/v1/traces/search"),
+        (
+            Method::POST,
+            "/v1/projects/00000000-0000-0000-0000-000000000000/logs/histogram",
+        ),
+    ] {
+        for token in [None, Some(k1.as_str())] {
+            let mut req = app
+                .http
+                .request(method.clone(), format!("{}{path}", app.base))
+                .json(&json!({}));
+            if let Some(t) = token {
+                req = req.bearer_auth(t);
+            }
+            assert_eq!(
+                req.send().await.unwrap().status(),
+                StatusCode::UNAUTHORIZED,
+                "{path}"
+            );
+        }
+    }
+}

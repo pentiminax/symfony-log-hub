@@ -2,7 +2,11 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import { ApiError, api } from "./api";
-import { Message } from "./Traces";
+import { StateView } from "@/components/StateView";
+
+const Message = ({ children, alert }: { children: React.ReactNode; alert?: boolean }) => (
+  <StateView kind={alert ? "error" : "empty"} title={alert ? "Unable to load trace" : undefined}>{children}</StateView>
+);
 import { type Json, type Span, buildTree, formatDuration, geometry, isError, serviceHue, toUs } from "./traceTree";
 
 const val = (v: Json) => (v !== null && typeof v === "object" ? JSON.stringify(v) : String(v));
@@ -114,7 +118,7 @@ export function TraceDetail() {
   });
   const back = (
     <p className="text-label">
-      <Link className="text-accent underline" to={{ pathname: "/traces", search: project ? `?project=${encodeURIComponent(project)}` : "" }}>
+      <Link className="text-brand underline" to={{ pathname: "/traces", search: project ? `?project=${encodeURIComponent(project)}` : "" }}>
         &larr; Traces
       </Link>
     </p>

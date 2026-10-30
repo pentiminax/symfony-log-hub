@@ -586,3 +586,57 @@ async fn retention_purges_expired_spans(pool: PgPool) {
     assert_eq!(app.trace_ids(&project, json!({})).await, [tid(2)]);
     assert_eq!(retention::purge_expired(&app.pool, 14).await.unwrap(), 0);
 }
+
+#[sqlx::test]
+async fn all_projects_trace_search_labels_rows_with_project_id(pool: PgPool) {
+    let app = app(pool).await;
+    let (p1, k1) = app.project().await;
+    let (p2, k2) = app.project().await;
+    // Same trace id in both projects: they must stay separate rows.
+    app.export(&k1, "api", vec![span(1, 1, 0, "GET /a", 0, 10)])
+        .await;
+    app.export(
+        &k2,
+        "web",
+        vec![
+            span(1, 1, 0, "GET /b", 5, 10),
+            span(2, 1, 0, "GET /c", 50, 10),
+        ],
+    )
+    .await;
+
+    let v = app
+        .admin(Method::POST, "/v1/traces/search", Some(json!({})))
+        .await
+        .1;
+    let rows = v["traces"].as_array().unwrap();
+    assert_eq!(rows.len(), 3);
+    let of = |p: &str| rows.iter().filter(|r| r["project_id"] == p).count();
+    assert_eq!((of(&p1), of(&p2)), (1, 2));
+    let r1 = rows.iter().find(|r| r["project_id"] == p1).unwrap();
+    assert_eq!(r1["span_count"], 1);
+
+    // The row carries what the scoped detail route needs.
+    let (s, _) = app
+        .admin(
+            Method::GET,
+            &format!(
+                "/v1/projects/{}/traces/{}",
+                r1["project_id"].as_str().unwrap(),
+                r1["trace_id"].as_str().unwrap()
+            ),
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
+
+    let v = app
+        .admin(Method::POST, "/v1/traces/search", Some(json!({"filters": [{"field": "service.name", "operator": "equals", "value": "web"}]})))
+        .await
+        .1;
+    assert_eq!(v["traces"].as_array().unwrap().len(), 2);
+
+    // Scoped search rows now carry project_id too.
+    let v = app.search(&p1, json!({})).await;
+    assert_eq!(v["traces"][0]["project_id"], p1);
+}

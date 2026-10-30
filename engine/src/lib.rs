@@ -83,6 +83,15 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/v1/projects/{project_id}/logs/count", post(search::count))
         .route(
+            "/v1/projects/{project_id}/logs/histogram",
+            post(search::histogram),
+        )
+        .route("/v1/logs/search", post(search::search_all))
+        .route("/v1/logs/count", post(search::count_all))
+        .route("/v1/logs/histogram", post(search::histogram_all))
+        .route("/v1/logs/facets/{field}", get(search::facet_all))
+        .route("/v1/traces/search", post(traces::search_all))
+        .route(
             "/v1/projects/{project_id}/logs/facets/{field}",
             get(search::facet),
         )

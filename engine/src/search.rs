@@ -12,6 +12,8 @@ use crate::{ApiPath, ApiQuery, AppState, error::ApiError};
 
 const MAX_LIMIT: i64 = 1000;
 const FACET_LIMIT: i64 = 200;
+const MAX_BUCKETS: i64 = 1000;
+const MAX_INTERVAL_SECONDS: i64 = 86_400;
 const SELECT: &str = "SELECT id, project_id, \"timestamp\", severity_text, severity_number, message, channel, \
                       resource, attributes, trace_id, span_id, exception FROM logs";
 
@@ -227,13 +229,15 @@ pub(crate) fn check_range(range: &Range) -> Result<(), ApiError> {
 
 /// `FROM logs WHERE ...` with every predicate of a search but no order/cursor/limit, so a
 /// count and a page describe the same result set.
+/// `project_id: None` is the all-projects scope.
 fn push_matching(
     qb: &mut QueryBuilder<'_, Postgres>,
-    project_id: Uuid,
+    project_id: Option<Uuid>,
     q: &SearchRequest,
 ) -> Result<(), ApiError> {
     check_range(&q.range)?;
-    qb.push(" WHERE project_id = ").push_bind(project_id);
+    qb.push(" WHERE TRUE");
+    push_scope(qb, project_id);
     push_range(qb, &q.range, "\"timestamp\"");
     if let Some(search) = q.search.as_deref().filter(|s| !s.is_empty()) {
         let pattern = like_pattern(search);
@@ -247,6 +251,12 @@ fn push_matching(
         push_filter(qb, f, resolve)?;
     }
     Ok(())
+}
+
+pub(crate) fn push_scope(qb: &mut QueryBuilder<'_, Postgres>, project_id: Option<Uuid>) {
+    if let Some(id) = project_id {
+        qb.push(" AND project_id = ").push_bind(id);
+    }
 }
 
 fn like_pattern(s: &str) -> String {
@@ -421,6 +431,21 @@ pub async fn search(
     ApiPath(project_id): ApiPath<Uuid>,
     crate::ApiJson(q): crate::ApiJson<SearchRequest>,
 ) -> Result<Json<Value>, ApiError> {
+    search_in(s, Some(project_id), q).await
+}
+
+pub async fn search_all(
+    State(s): State<AppState>,
+    crate::ApiJson(q): crate::ApiJson<SearchRequest>,
+) -> Result<Json<Value>, ApiError> {
+    search_in(s, None, q).await
+}
+
+async fn search_in(
+    s: AppState,
+    project_id: Option<Uuid>,
+    q: SearchRequest,
+) -> Result<Json<Value>, ApiError> {
     if !(1..=MAX_LIMIT).contains(&q.limit) {
         return Err(invalid(format!("limit must be between 1 and {MAX_LIMIT}")));
     }
@@ -471,6 +496,21 @@ pub async fn count(
     ApiPath(project_id): ApiPath<Uuid>,
     crate::ApiJson(req): crate::ApiJson<CountRequest>,
 ) -> Result<Json<Value>, ApiError> {
+    count_in(s, Some(project_id), req).await
+}
+
+pub async fn count_all(
+    State(s): State<AppState>,
+    crate::ApiJson(req): crate::ApiJson<CountRequest>,
+) -> Result<Json<Value>, ApiError> {
+    count_in(s, None, req).await
+}
+
+async fn count_in(
+    s: AppState,
+    project_id: Option<Uuid>,
+    req: CountRequest,
+) -> Result<Json<Value>, ApiError> {
     if !(1..=1_000_000).contains(&req.max) {
         return Err(invalid("max must be between 1 and 1000000"));
     }
@@ -481,11 +521,103 @@ pub async fn count(
     Ok(Json(json!({"count": count})))
 }
 
+#[derive(Deserialize)]
+pub struct HistogramRequest {
+    #[serde(flatten)]
+    query: SearchRequest,
+    /// Bucket width in seconds.
+    interval: i64,
+}
+
+/// Contiguous buckets of `interval` seconds over `range` (both bounds required), aligned on
+/// `range.from`; empty buckets are zeros. `errors` = severity_number >= 17 (OTel ERROR+).
+pub async fn histogram(
+    State(s): State<AppState>,
+    ApiPath(project_id): ApiPath<Uuid>,
+    crate::ApiJson(req): crate::ApiJson<HistogramRequest>,
+) -> Result<Json<Value>, ApiError> {
+    histogram_in(s, Some(project_id), req).await
+}
+
+pub async fn histogram_all(
+    State(s): State<AppState>,
+    crate::ApiJson(req): crate::ApiJson<HistogramRequest>,
+) -> Result<Json<Value>, ApiError> {
+    histogram_in(s, None, req).await
+}
+
+async fn histogram_in(
+    s: AppState,
+    project_id: Option<Uuid>,
+    req: HistogramRequest,
+) -> Result<Json<Value>, ApiError> {
+    let (Some(from), Some(to)) = (req.query.range.from, req.query.range.to) else {
+        return Err(invalid("range.from and range.to are required"));
+    };
+    if !(1..=MAX_INTERVAL_SECONDS).contains(&req.interval) {
+        return Err(invalid(format!(
+            "interval must be between 1 and {MAX_INTERVAL_SECONDS} seconds"
+        )));
+    }
+    let interval = chrono::Duration::seconds(req.interval);
+    let span = (to - from).num_seconds().max(0);
+    let n = (span + req.interval - 1) / req.interval;
+    let n = n.max(1);
+    if n > MAX_BUCKETS {
+        return Err(invalid(format!(
+            "range / interval would produce {n} buckets, the maximum is {MAX_BUCKETS}"
+        )));
+    }
+
+    let mut qb = QueryBuilder::new("SELECT floor(extract(epoch FROM \"timestamp\" - ");
+    qb.push_bind(from)
+        .push(")::float8 / ")
+        .push_bind(req.interval as f64)
+        .push(")::bigint AS bucket, count(*) AS total, count(*) FILTER (WHERE severity_number >= 17) AS errors FROM logs");
+    push_matching(&mut qb, project_id, &req.query)?;
+    qb.push(" GROUP BY 1");
+    let rows: Vec<(i64, i64, i64)> = qb.build_query_as().fetch_all(&s.pool).await?;
+
+    let mut buckets: Vec<(i64, i64)> = vec![(0, 0); usize::try_from(n).unwrap_or(0)];
+    for (b, total, errors) in rows {
+        // A row exactly at `to` on a bucket boundary lands in the last bucket.
+        let i = usize::try_from(b.clamp(0, n - 1)).unwrap_or(0);
+        buckets[i].0 += total;
+        buckets[i].1 += errors;
+    }
+    let buckets: Vec<Value> = buckets
+        .into_iter()
+        .enumerate()
+        .map(|(i, (total, errors))| {
+            let t = from + interval * i32::try_from(i).unwrap_or(0);
+            json!({"t": t, "total": total, "errors": errors})
+        })
+        .collect();
+    Ok(Json(json!({"buckets": buckets})))
+}
+
 /// Values observed for a low-cardinality field, within the optional time range.
 pub async fn facet(
     State(s): State<AppState>,
     ApiPath((project_id, field)): ApiPath<(Uuid, String)>,
     ApiQuery(range): ApiQuery<RangeQuery>,
+) -> Result<Json<Value>, ApiError> {
+    facet_in(s, Some(project_id), field, range).await
+}
+
+pub async fn facet_all(
+    State(s): State<AppState>,
+    ApiPath(field): ApiPath<String>,
+    ApiQuery(range): ApiQuery<RangeQuery>,
+) -> Result<Json<Value>, ApiError> {
+    facet_in(s, None, field, range).await
+}
+
+async fn facet_in(
+    s: AppState,
+    project_id: Option<Uuid>,
+    field: String,
+    range: RangeQuery,
 ) -> Result<Json<Value>, ApiError> {
     let Some(Target::Column(col, _)) = FACETS
         .contains(&field.as_str())
@@ -499,11 +631,9 @@ pub async fn facet(
         to: range.to,
     };
     check_range(&range)?;
-    let mut qb = QueryBuilder::new(format!(
-        "SELECT DISTINCT {col} FROM logs WHERE project_id = "
-    ));
-    qb.push_bind(project_id)
-        .push(format_args!(" AND {col} IS NOT NULL"));
+    let mut qb = QueryBuilder::new(format!("SELECT DISTINCT {col} FROM logs WHERE TRUE"));
+    push_scope(&mut qb, project_id);
+    qb.push(format_args!(" AND {col} IS NOT NULL"));
     push_range(&mut qb, &range, "\"timestamp\"");
     qb.push(format_args!(" ORDER BY {col} ASC LIMIT {FACET_LIMIT}"));
     let values: Vec<String> = qb.build_query_scalar().fetch_all(&s.pool).await?;

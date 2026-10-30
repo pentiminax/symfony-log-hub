@@ -1,4 +1,6 @@
 const paths = {
+  overview: <path d="M4 4h7v7H4zM13 4h7v4h-7zM13 11h7v9h-7zM4 14h7v6H4z" />,
+  refresh: <path d="M20 12a8 8 0 1 1-2.6-5.9M20 4v4h-4" />,
   logs: <path d="M4 6h16M4 12h16M4 18h10" />,
   traces: <path d="M4 5h9M7 12h10M11 19h9" />,
   projects: (
