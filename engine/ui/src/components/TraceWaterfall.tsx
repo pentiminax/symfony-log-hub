@@ -58,7 +58,7 @@ function Pairs({ title, data }: { title: string; data: Record<string, Json> }) {
   );
 }
 
-function SpanDetails({ span }: { span: Span }) {
+export function SpanDetails({ span }: { span: Span }) {
   return (
     <>
       <Pairs
@@ -102,21 +102,20 @@ function SpanRow({ span, depth, bar, offsetNs }: { span: Span; depth: number; ba
   const err = isError(span);
   const label = `${span.service_name} · ${span.name}`;
   return (
-    <li>
+    <li className="border-b border-border">
       <details onToggle={(e) => setOpen(e.currentTarget.open)}>
         <summary
-          className={`flex cursor-pointer flex-col gap-[5px] rounded-sm px-1 py-[5px] hover:bg-sunken md:grid md:min-h-[26px] md:grid-cols-[280px_1fr] md:items-center md:gap-[10px] md:py-0 ${err ? "bg-error-tint" : ""}`}
+          className={`grid cursor-pointer grid-cols-[200px_1fr] items-center py-2 hover:bg-sunken ${err ? "bg-error-tint" : ""}`}
         >
-          <span
-            className="min-w-0 truncate text-micro md:pl-[calc(var(--depth)*12px)]"
-            style={{ "--depth": depth } as React.CSSProperties}
-            title={label}
-          >
-            {label}
-            {err && <span className="ml-1.5 font-medium text-error-ink">error</span>}
+          <span className="flex min-w-0 flex-col gap-1 pr-2" style={{ paddingLeft: `${depth * 8}px` }} title={label}>
+            <span className="truncate text-label font-medium">{span.service_name}</span>
+            <span className="tnum truncate text-[10px] text-ink-muted">
+              {formatDuration(span.duration_ns)} &middot; {span.name}
+              {err && <span className="ml-1.5 font-medium text-error-ink">error</span>}
+            </span>
           </span>
           <span
-            className="relative block h-[7px] md:h-2.5"
+            className="relative block h-2.5"
             role="img"
             aria-label={`${label}: ${formatDuration(span.duration_ns)}, starts ${formatDuration(Math.max(0, offsetNs))} after the first span${err ? ", failed" : ""}`}
           >
@@ -142,7 +141,7 @@ export function TraceWaterfall({ spans }: { spans: Span[] }) {
   const t0 = toUs(spans[0].start_time);
   return (
     <div className="flex flex-col gap-3">
-      <div className="tnum hidden justify-between pl-[290px] text-[10px] text-ink-muted md:flex" aria-hidden="true">
+      <div className="tnum flex justify-between pl-[200px] text-[10px] text-ink-muted" aria-hidden="true">
         {[0, 0.25, 0.5, 0.75, 1].map((f) => <span key={f}>{f === 0 ? "0 ms" : formatDuration(totalNs * f)}</span>)}
       </div>
       <ol className="flex flex-col" aria-label="Spans of this trace">

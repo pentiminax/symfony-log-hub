@@ -1,12 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useRef } from "react";
 import { Link, useSearchParams } from "react-router";
 import { StateView } from "@/components/StateView";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { MetricCard } from "@/components/MetricCard";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { TraceLoader, TraceWaterfall, traceStats } from "@/components/TraceWaterfall";
+import { TraceSheet } from "@/components/TraceSheet";
 import { resolveRange } from "@/lib/range";
 import { scopeBase } from "@/lib/scope";
 import { usePageScope } from "@/lib/usePageScope";
@@ -34,27 +33,19 @@ const parseCursor = (raw: string): Cursor | null => {
   return start_time && trace_id ? { start_time, trace_id, ...(project_id && { project_id }) } : null;
 };
 
-const when = (iso: string) => {
-  const d = new Date(iso);
-  return `${d.toLocaleString(undefined, { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}.${String(d.getMilliseconds()).padStart(3, "0")}`;
-};
-
-function Errors({ n }: { n: number }) {
-  return n > 0 ? (
-    <Badge variant="destructive">
-      {n} error{n > 1 ? "s" : ""}
-    </Badge>
-  ) : (
-    <span className="text-muted-foreground">&mdash;</span>
-  );
-}
+const when = (iso: string) => new Date(iso).toLocaleTimeString([], { hour12: false });
+const percentile = (sorted: number[], p: number) => sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))];
+const MIN_DURATIONS = [["100", "≥ 100 ms"], ["500", "≥ 500 ms"], ["1000", "≥ 1 s"]];
+const ROW = "flex h-[42px] items-center gap-3 px-[18px]";
 
 export function Traces() {
   const [params, setParams] = useSearchParams();
   const scope = usePageScope();
   const { project } = scope;
   const service = params.get("service")?.trim() ?? "";
+  const q = params.get("q")?.trim() ?? "";
   const errors = params.get("errors") === "1";
+  const min = params.get("min") ?? "";
   const cursorRaw = params.get("cursor") ?? "";
   const cursor = parseCursor(cursorRaw);
   const names = useQuery({ queryKey: ["projects"], queryFn: () => api<Project[]>("/v1/projects") }).data;
@@ -70,9 +61,11 @@ export function Traces() {
 
   const result = useQuery({
     enabled: scope.ready,
-    queryKey: ["traces", project, scope.range, scope.from, scope.to, service, errors, cursorRaw],
+    queryKey: ["traces", project, scope.range, scope.from, scope.to, q, service, errors, min, cursorRaw],
     queryFn: () => {
       const filters = [
+        ...(q ? [{ field: "name", operator: "contains", value: q }] : []),
+        ...(min ? [{ field: "duration", operator: "greater_than_or_equal", value: Number(min) * 1e6 }] : []),
         ...(service ? [{ field: "service.name", operator: "equals", value: service }] : []),
         ...(errors ? [{ field: "status", operator: "equals", value: "error" }] : []),
       ];
@@ -102,46 +95,65 @@ export function Traces() {
     return `?${p}`;
   };
   const isSelected = (t: Summary) => t.trace_id === selected && t.project_id === selectedProject;
-  const panel = useRef<HTMLElement>(null);
-  const first = useRef(true);
-  useEffect(() => {
-    if (first.current) first.current = false;
-    else panel.current?.scrollIntoView({ block: "nearest" });
-  }, [selected]);
+  const closeSheet = () =>
+    setParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete("trace");
+      next.delete("trace_project");
+      return next;
+    });
 
   const data = result.data;
   const next = data?.next_cursor;
-  const filtered = !!(service || errors);
+  const filtered = !!(q || service || errors || min);
+  const durations = (data?.traces ?? []).map((t) => t.duration_ns).sort((a, b) => a - b);
+  const failed = (data?.traces ?? []).filter((t) => t.error_count > 0).length;
 
   return (
     <div className="flex min-h-full flex-col">
-      <header className="flex flex-col gap-3 px-4 pt-4 pb-3 sm:px-6">
+      <header className="flex flex-col gap-[18px] px-4 pt-4 pb-3 sm:px-6">
         <div>
           <h1 className="text-lg font-semibold tracking-tight">Traces</h1>
-          <p className="text-body text-muted-foreground">Follow requests across your instrumented services.</p>
+          <p className="text-body text-muted-foreground">Follow requests across your distributed system.</p>
         </div>
         <form
-          key={`${service}|${errors}`}
+          key={`${q}|${service}|${errors}|${min}`}
           className="flex flex-wrap items-center gap-2"
+          onChange={(e) => e.target instanceof HTMLSelectElement && e.currentTarget.requestSubmit()}
           onSubmit={(e) => {
             e.preventDefault();
             const f = new FormData(e.currentTarget);
             edit((p) => {
-              const s = String(f.get("service") ?? "").trim();
-              if (s) p.set("service", s);
-              else p.delete("service");
-              if (f.get("errors")) p.set("errors", "1");
+              for (const k of ["q", "service", "min"]) {
+                const v = String(f.get(k) ?? "").trim();
+                if (v) p.set(k, v);
+                else p.delete(k);
+              }
+              if (f.get("status") === "error") p.set("errors", "1");
               else p.delete("errors");
             });
           }}
         >
+          <label className="sr-only" htmlFor="lh-q">Search trace or operation</label>
+          <input id="lh-q" type="search" name="q" defaultValue={q} placeholder="Search trace or operation" className="lh-control min-w-0 flex-1 basis-48 sm:flex-none" />
           <label className="sr-only" htmlFor="lh-service">Service</label>
-          <input id="lh-service" type="search" name="service" defaultValue={service} placeholder="Service name" className="lh-control min-w-0 flex-1 basis-40 sm:flex-none" />
-          <label className="lh-control gap-1.5">
-            <input type="checkbox" name="errors" value="1" defaultChecked={errors} /> Errors only
-          </label>
-          <Button type="submit" variant="outline">Apply</Button>
+          <input id="lh-service" type="search" name="service" defaultValue={service} placeholder="All services" className="lh-control min-w-0 basis-32" />
+          <label className="sr-only" htmlFor="lh-status">Status</label>
+          <select id="lh-status" name="status" defaultValue={errors ? "error" : ""} className="lh-control">
+            <option value="">All status</option>
+            <option value="error">Error</option>
+          </select>
+          <label className="sr-only" htmlFor="lh-min">Min duration</label>
+          <select id="lh-min" name="min" defaultValue={min} className="lh-control">
+            <option value="">Min duration</option>
+            {MIN_DURATIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
         </form>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <MetricCard label="Traces" value={data ? `${data.traces.length}${data.has_more ? "+" : ""}` : "—"} loading={!data && !result.isError} hint="on this page" />
+          <MetricCard label="Failure rate" value={data?.traces.length ? `${((failed / data.traces.length) * 100).toFixed(2)}%` : "—"} loading={!data && !result.isError} hint={`${failed} with errors`} />
+          <MetricCard label="P95 duration" value={durations.length ? formatDuration(percentile(durations, 0.95)) : "—"} loading={!data && !result.isError} hint="on this page" />
+        </div>
       </header>
 
       {!scope.ready ? (
@@ -167,56 +179,32 @@ export function Traces() {
         )
       ) : (
         <>
-          <Table className="hidden md:table">
-            <caption className="sr-only">Traces, most recent first</caption>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="pl-6">Root span</TableHead>
-                {!project && <TableHead>Project</TableHead>}
-                <TableHead>Services</TableHead>
-                <TableHead className="w-48">Start</TableHead>
-                <TableHead className="w-28 text-right">Duration</TableHead>
-                <TableHead className="w-20 text-right">Spans</TableHead>
-                <TableHead className="w-28 pr-6">Errors</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
+          <Card className="mx-4 gap-0 p-0 sm:mx-6">
+            <div className="flex h-12 items-center justify-between px-[18px]">
+              <h2 className="text-sm font-semibold">Recent traces</h2>
+              <span className="text-xs text-muted-foreground">Most recent first</span>
+            </div>
+            <div className="flex h-10 items-center gap-3 border-y border-border px-[18px] text-micro font-medium text-muted-foreground" aria-hidden="true">
+              <span className="w-[70px] shrink-0 sm:w-[110px]">TIME</span>
+              <span className="w-12 shrink-0 sm:w-[90px]">STATUS</span>
+              <span className="hidden w-[170px] shrink-0 md:block">SERVICE</span>
+              <span className="min-w-0 flex-1">OPERATION</span>
+              <span className="w-20 shrink-0 text-right">DURATION</span>
+            </div>
+            <ul className="text-label" aria-label="Traces, most recent first">
               {data.traces.map((t) => (
-                <TableRow key={`${t.project_id}/${t.trace_id}`} data-state={isSelected(t) ? "selected" : undefined}>
-                  <TableCell className="pl-6">
-                    <Link className="font-mono text-brand underline" to={select(t)} aria-current={isSelected(t) ? "true" : undefined}>{t.root?.name ?? "(root span missing)"}</Link>
-                  </TableCell>
-                  {!project && <TableCell className="text-muted-foreground">{nameOf(t.project_id)}</TableCell>}
-                  <TableCell className="text-muted-foreground">{t.services.join(", ")}</TableCell>
-                  <TableCell className="tnum text-muted-foreground"><time dateTime={t.start_time}>{when(t.start_time)}</time></TableCell>
-                  <TableCell className="tnum text-right">{formatDuration(t.duration_ns)}</TableCell>
-                  <TableCell className="tnum text-right">{t.span_count}</TableCell>
-                  <TableCell className="pr-6"><Errors n={t.error_count} /></TableCell>
-                </TableRow>
+                <li key={`${t.project_id}/${t.trace_id}`} className={`border-b border-border last:border-b-0 ${isSelected(t) ? "bg-muted" : "hover:bg-muted"}`}>
+                  <Link to={select(t)} aria-current={isSelected(t) ? "true" : undefined} className={ROW}>
+                    <time className="tnum w-[70px] shrink-0 text-muted-foreground sm:w-[110px]" dateTime={t.start_time}>{when(t.start_time)}</time>
+                    <span className={`w-12 shrink-0 uppercase sm:w-[90px] ${t.error_count > 0 ? "text-error-ink" : ""}`}>{t.error_count > 0 ? "error" : "ok"}</span>
+                    <span className="hidden w-[170px] shrink-0 truncate md:block">{!project && `${nameOf(t.project_id)} · `}{t.services.join(", ")}</span>
+                    <span className="min-w-0 flex-1 truncate">{t.root?.name ?? "(root span missing)"}</span>
+                    <span className="tnum w-20 shrink-0 text-right">{formatDuration(t.duration_ns)}</span>
+                  </Link>
+                </li>
               ))}
-            </TableBody>
-          </Table>
-
-          <ul className="divide-y divide-border border-y border-border md:hidden" aria-label="Traces, most recent first">
-            {data.traces.map((t) => (
-              <li key={`${t.project_id}/${t.trace_id}`} className={isSelected(t) ? "bg-muted" : undefined}>
-                <Link to={select(t)} aria-current={isSelected(t) ? "true" : undefined} className="flex flex-col gap-1 px-4 py-3 active:bg-muted">
-                  <span className="flex items-start justify-between gap-2">
-                    <span className="min-w-0 break-words font-mono text-body font-medium">{t.root?.name ?? "(root span missing)"}</span>
-                    <span className="tnum shrink-0 text-body">{formatDuration(t.duration_ns)}</span>
-                  </span>
-                  <span className="truncate text-label text-muted-foreground">
-                    {!project && `${nameOf(t.project_id)} · `}{t.services.join(", ")}
-                  </span>
-                  <span className="flex items-center gap-2 text-label text-muted-foreground">
-                    <time className="tnum" dateTime={t.start_time}>{when(t.start_time)}</time>
-                    <span>· {t.span_count} spans</span>
-                    {t.error_count > 0 && <Errors n={t.error_count} />}
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ul>
+            </ul>
+          </Card>
 
           <nav className="flex items-center gap-3 px-4 py-3 sm:px-6" aria-label="Pagination">
             {cursor && (
@@ -227,30 +215,7 @@ export function Traces() {
             )}
           </nav>
 
-          {selected && (
-            <section ref={panel} aria-label="Trace details" className="mx-4 mb-4 flex scroll-mb-4 flex-col gap-3 rounded-lg border border-border bg-card p-4 sm:mx-6 md:p-[18px]">
-              <TraceLoader project={selectedProject} traceId={selected}>
-                {(spans) => {
-                  const { root, totalNs, errors } = traceStats(spans);
-                  const dur = formatDuration(totalNs);
-                  return (
-                    <>
-                      <div className="flex items-center justify-between gap-3">
-                        <h2 className="min-w-0 truncate text-[14px] font-semibold">{root.name}</h2>
-                        <Badge variant="secondary" className="tnum hidden shrink-0 md:inline-flex">{dur}</Badge>
-                      </div>
-                      <p className="tnum text-micro text-muted-foreground">
-                        Trace {selected.slice(0, 8)} &middot; {spans.length} spans &middot; <span className="md:hidden">{dur}</span>
-                        <time className="hidden md:inline" dateTime={root.start_time}>{new Date(root.start_time).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}</time>
-                        {errors > 0 && <> &middot; {errors} error{errors > 1 ? "s" : ""}</>}
-                      </p>
-                      <TraceWaterfall spans={spans} />
-                    </>
-                  );
-                }}
-              </TraceLoader>
-            </section>
-          )}
+          {selected && <TraceSheet project={selectedProject} traceId={selected} onClose={closeSheet} />}
         </>
       )}
     </div>
