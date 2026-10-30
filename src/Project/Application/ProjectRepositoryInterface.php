@@ -9,12 +9,15 @@ use App\Project\Domain\Project;
 
 interface ProjectRepositoryInterface
 {
-    public function save(Project $project): void;
+    /**
+     * The storage assigns the id.
+     */
+    public function create(string $name): Project;
 
     public function findById(ProjectId $id): ?Project;
 
     /**
-     * @return list<Project>
+     * @return list<Project> ordered by name
      */
     public function findAll(): array;
 }

@@ -24,8 +24,10 @@ services:
 
 when@test:
     services:
-        # Diagnostic-only controller (tests/Security/WhoAmIController.php) used to exercise
-        # the /api/v1/* firewall in functional tests; never registered outside the test env.
-        App\Tests\Security\WhoAmIController:
-            autowire: true
-            autoconfigure: true
+        # In-memory stand-ins for the engine; public so tests can seed them.
+        App\Tests\Fake\InMemoryLogSearchStore:
+            public: true
+        App\Tests\Fake\InMemoryProjectRepository:
+            public: true
+        App\Log\Application\LogSearchStoreInterface: '@App\Tests\Fake\InMemoryLogSearchStore'
+        App\Project\Application\ProjectRepositoryInterface: '@App\Tests\Fake\InMemoryProjectRepository'

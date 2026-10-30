@@ -4,9 +4,8 @@ declare(strict_types=1);
 
 namespace App\Tests\UI\Controller;
 
-use App\Project\Application\ProjectRepositoryInterface;
-use App\Project\Domain\Project;
 use App\Security\User;
+use App\Tests\Fake\InMemoryProjectRepository;
 use Doctrine\DBAL\Connection;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\KernelBrowser;
@@ -19,9 +18,8 @@ final class LogsControllerTest extends WebTestCase
     protected function setUp(): void
     {
         $this->client = self::createClient();
+        $this->client->disableReboot();
         $connection = self::getContainer()->get(Connection::class);
-        $connection->executeStatement('TRUNCATE TABLE log_record');
-        $connection->executeStatement('TRUNCATE TABLE project CASCADE');
         $connection->executeStatement('TRUNCATE TABLE app_user CASCADE');
 
         $user = new User('ops@example.com');
@@ -34,7 +32,7 @@ final class LogsControllerTest extends WebTestCase
     /** The root path *is* Discover; there is no landing page in front of it. */
     public function testTheRootPathRendersTheExplorer(): void
     {
-        self::getContainer()->get(ProjectRepositoryInterface::class)->save(Project::create('Checkout'));
+        self::getContainer()->get(InMemoryProjectRepository::class)->create('Checkout');
 
         $crawler = $this->client->request('GET', '/');
 
@@ -56,7 +54,7 @@ final class LogsControllerTest extends WebTestCase
     /** A crafted filter must reach the store and come back as a banner, not a 500. */
     public function testAnUnknownFilterFieldInTheUrlIsReportedNotFatal(): void
     {
-        self::getContainer()->get(ProjectRepositoryInterface::class)->save(Project::create('Checkout'));
+        self::getContainer()->get(InMemoryProjectRepository::class)->create('Checkout');
 
         $crawler = $this->client->request('GET', '/?f%5B0%5D%5Bfield%5D=nope.nope&f%5B0%5D%5Bop%5D=equals&f%5B0%5D%5Bvalue%5D=x');
 

@@ -47,6 +47,9 @@
             "migrations/.gitignore"
         ]
     },
+    "loghub/engine-bundle": {
+        "version": "dev-main"
+    },
     "loghub/monolog-bundle": {
         "version": "dev-main"
     },

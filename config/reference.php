@@ -1294,6 +1294,10 @@ use Symfony\Component\Config\Loader\ParamConfigurator as Param;
  *     intercept_redirects?: bool|Param, // Default: false
  *     excluded_ajax_paths?: scalar|Param|null, // Default: "^/((index|app(_[\\w]+)?)\\.php/)?_wdt"
  * }
+ * @psalm-type LoghubEngineConfig = array{
+ *     url?: scalar|Param|null,
+ *     master_key?: scalar|Param|null,
+ * }
  * @psalm-type ConfigType = array{
  *     imports?: ImportsConfig,
  *     parameters?: ParametersConfig,
@@ -1307,6 +1311,7 @@ use Symfony\Component\Config\Loader\ParamConfigurator as Param;
  *     twig_component?: TwigComponentConfig,
  *     live_component?: LiveComponentConfig,
  *     symfonycasts_tailwind?: SymfonycastsTailwindConfig,
+ *     loghub_engine?: LoghubEngineConfig,
  *     "when@dev"?: array{
  *         imports?: ImportsConfig,
  *         parameters?: ParametersConfig,
@@ -1321,6 +1326,7 @@ use Symfony\Component\Config\Loader\ParamConfigurator as Param;
  *         live_component?: LiveComponentConfig,
  *         symfonycasts_tailwind?: SymfonycastsTailwindConfig,
  *         web_profiler?: WebProfilerConfig,
+ *         loghub_engine?: LoghubEngineConfig,
  *     },
  *     "when@prod"?: array{
  *         imports?: ImportsConfig,
@@ -1335,6 +1341,7 @@ use Symfony\Component\Config\Loader\ParamConfigurator as Param;
  *         twig_component?: TwigComponentConfig,
  *         live_component?: LiveComponentConfig,
  *         symfonycasts_tailwind?: SymfonycastsTailwindConfig,
+ *         loghub_engine?: LoghubEngineConfig,
  *     },
  *     "when@test"?: array{
  *         imports?: ImportsConfig,
@@ -1350,6 +1357,7 @@ use Symfony\Component\Config\Loader\ParamConfigurator as Param;
  *         live_component?: LiveComponentConfig,
  *         symfonycasts_tailwind?: SymfonycastsTailwindConfig,
  *         web_profiler?: WebProfilerConfig,
+ *         loghub_engine?: LoghubEngineConfig,
  *     },
  *     ...<string, ExtensionType|array{ // extra keys must follow the when@%env% pattern or match an extension alias
  *         imports?: ImportsConfig,

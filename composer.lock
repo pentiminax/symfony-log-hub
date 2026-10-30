@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "36af8fd9f47a90d5e27d2f619c21e79d",
+    "content-hash": "774457a10475ee9b4c275f4cacc7d7ea",
     "packages": [
         {
             "name": "composer/semver",
@@ -1201,6 +1201,44 @@
                 "source": "https://github.com/doctrine/sql-formatter/tree/1.5.4"
             },
             "time": "2026-02-08T16:21:46+00:00"
+        },
+        {
+            "name": "loghub/engine-bundle",
+            "version": "dev-main",
+            "dist": {
+                "type": "path",
+                "url": "packages/engine-bundle",
+                "reference": "6fb0cd3b54c734abd3fba5f05968d5383727d9ad"
+            },
+            "require": {
+                "php": ">=8.4",
+                "symfony/config": "8.1.*",
+                "symfony/dependency-injection": "8.1.*",
+                "symfony/http-client": "8.1.*",
+                "symfony/http-client-contracts": "^3.6",
+                "symfony/http-kernel": "8.1.*"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "^13.3"
+            },
+            "type": "symfony-bundle",
+            "autoload": {
+                "psr-4": {
+                    "LogHub\\EngineBundle\\": "src/"
+                }
+            },
+            "autoload-dev": {
+                "psr-4": {
+                    "LogHub\\EngineBundle\\Tests\\": "tests/"
+                }
+            },
+            "license": [
+                "proprietary"
+            ],
+            "description": "Symfony client bundle for the LogHub engine (projects, API keys, log search).",
+            "transport-options": {
+                "relative": true
+            }
         },
         {
             "name": "loghub/monolog-bundle",
@@ -8869,6 +8907,7 @@
     "aliases": [],
     "minimum-stability": "stable",
     "stability-flags": {
+        "loghub/engine-bundle": 20,
         "loghub/monolog-bundle": 20
     },
     "prefer-stable": true,
@@ -8879,5 +8918,5 @@
         "ext-iconv": "*"
     },
     "platform-dev": {},
-    "plugin-api-version": "2.6.0"
+    "plugin-api-version": "2.9.0"
 }

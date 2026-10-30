@@ -4,19 +4,16 @@ declare(strict_types=1);
 
 namespace App\DataFixtures;
 
-use App\Project\Application\ApiKeyFactory;
-use App\Project\Domain\Project;
-use App\Project\Infrastructure\ApiKeyEntity;
-use App\Project\Infrastructure\ProjectEntity;
 use App\Security\User;
 use Doctrine\Bundle\FixturesBundle\Fixture;
 use Doctrine\Persistence\ObjectManager;
+use LogHub\EngineBundle\Client\EngineClient;
 use Symfony\Component\PasswordHasher\Hasher\UserPasswordHasherInterface;
 
 class AppFixtures extends Fixture
 {
     public function __construct(
-        private readonly ApiKeyFactory $apiKeyFactory,
+        private readonly EngineClient $engine,
         private readonly UserPasswordHasherInterface $passwordHasher,
     ) {
     }
@@ -28,16 +25,13 @@ class AppFixtures extends Fixture
         $user = new User('admin@loghub.test');
         $user->password = $this->passwordHasher->hashPassword($user, 'loghub-dev-password');
         $manager->persist($user);
-
-        $project = Project::create('Demo');
-        $manager->persist(ProjectEntity::fromDomain($project));
-
-        $generatedApiKey = $this->apiKeyFactory->generate($project->id, 'demo-app');
-        $manager->persist(ApiKeyEntity::fromDomain($generatedApiKey->apiKey));
-
         $manager->flush();
 
+        // Requires the engine to be running.
+        $project = $this->engine->createProject('Demo');
+        $created = $this->engine->createApiKey($project->id, 'demo-app');
+
         fwrite(STDOUT, sprintf("Project \"Demo\" created (id: %s)\n", $project->id));
-        fwrite(STDOUT, sprintf("API key: %s\n", $generatedApiKey->plaintext));
+        fwrite(STDOUT, sprintf("API key: %s\n", $created->key));
     }
 }

@@ -7,6 +7,10 @@
         {
             "type": "path",
             "url": "packages/monolog-bundle"
+        },
+        {
+            "type": "path",
+            "url": "packages/engine-bundle"
         }
     ],
     "require": {
@@ -16,6 +20,7 @@
         "doctrine/doctrine-bundle": "*",
         "doctrine/doctrine-migrations-bundle": "^4.0",
         "doctrine/orm": "^3.7",
+        "loghub/engine-bundle": "@dev",
         "loghub/monolog-bundle": "@dev",
         "symfony/asset": "8.1.*",
         "symfony/asset-mapper": "8.1.*",

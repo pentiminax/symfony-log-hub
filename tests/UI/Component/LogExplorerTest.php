@@ -4,18 +4,17 @@ declare(strict_types=1);
 
 namespace App\Tests\UI\Component;
 
-use App\Log\Application\LogIngestStoreInterface;
 use App\Log\Domain\ExceptionData;
 use App\Log\Domain\LogAttributes;
 use App\Log\Domain\LogId;
 use App\Log\Domain\LogRecord;
-use App\Log\Domain\LogRecordCollection;
 use App\Log\Domain\ResourceAttributes;
 use App\Log\Domain\Severity;
 use App\Log\Domain\TraceContext;
-use App\Project\Application\ProjectRepositoryInterface;
 use App\Project\Domain\Project;
 use App\Security\User;
+use App\Tests\Fake\InMemoryLogSearchStore;
+use App\Tests\Fake\InMemoryProjectRepository;
 use Doctrine\DBAL\Connection;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\KernelBrowser;
@@ -33,9 +32,9 @@ final class LogExplorerTest extends WebTestCase
     protected function setUp(): void
     {
         $this->client = self::createClient();
+        // Keep the container (and the in-memory fakes) alive across requests.
+        $this->client->disableReboot();
         $connection = self::getContainer()->get(Connection::class);
-        $connection->executeStatement('TRUNCATE TABLE log_record');
-        $connection->executeStatement('TRUNCATE TABLE project CASCADE');
         $connection->executeStatement('TRUNCATE TABLE app_user CASCADE');
 
         $user = new User('ops@example.com');
@@ -44,8 +43,7 @@ final class LogExplorerTest extends WebTestCase
         $entityManager->flush();
         $this->client->loginUser($user);
 
-        $this->project = Project::create('Checkout');
-        self::getContainer()->get(ProjectRepositoryInterface::class)->save($this->project);
+        $this->project = self::getContainer()->get(InMemoryProjectRepository::class)->create('Checkout');
     }
 
     /** Without a ?project=, the first project is better than a blank screen. */
@@ -159,8 +157,7 @@ final class LogExplorerTest extends WebTestCase
 
     private function store(LogRecord ...$records): void
     {
-        self::getContainer()->get(LogIngestStoreInterface::class)
-            ->storeBatch(new LogRecordCollection(...$records));
+        self::getContainer()->get(InMemoryLogSearchStore::class)->add(...$records);
     }
 
     private function makeRecord(string $message, Severity $severity): LogRecord

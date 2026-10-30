@@ -19,7 +19,6 @@ use App\Log\Domain\LogRecord;
 use App\Log\Domain\ProjectId;
 use App\UI\SeverityLevel;
 use App\UI\TimeRangePreset;
-use Doctrine\DBAL\Exception as DbalException;
 use Symfony\UX\LiveComponent\Attribute\AsLiveComponent;
 use Symfony\UX\LiveComponent\Attribute\LiveAction;
 use Symfony\UX\LiveComponent\Attribute\LiveProp;
@@ -223,7 +222,7 @@ final class LogTable
 
         try {
             $this->result = $this->store->search($this->buildQuery($this->currentCursor()));
-        } catch (\InvalidArgumentException|DbalException $e) {
+        } catch (\InvalidArgumentException $e) {
             // Every way this query can be wrong ends up here: an unknown field, a
             // malformed cursor, a broken range. Validating up front would only
             // duplicate the store's own rules, worse.

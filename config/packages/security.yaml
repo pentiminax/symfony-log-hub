@@ -3,12 +3,9 @@ security:
     password_hashers:
         Symfony\Component\Security\Core\User\PasswordAuthenticatedUserInterface: 'auto'
 
-    # Exactly ONE provider, on purpose. SecurityExtension throws "Not configuring
-    # explicitly the provider ... is ambiguous" as soon as a second one exists, and
-    # that would hit the `api` firewall too - even though ApiKeyAuthenticator uses a
-    # SelfValidatingPassport with an inline user loader and never asks a provider for
-    # anything. Adding a second provider means giving every firewall below an explicit
-    # `provider:` key, `api` included.
+    # Exactly ONE provider, on purpose: SecurityExtension throws "Not configuring the
+    # provider ... is ambiguous" as soon as a second one exists. Adding one means giving
+    # every firewall below an explicit `provider:` key.
     providers:
         app_users:
             entity:
@@ -20,13 +17,6 @@ security:
             # Ensure dev tools and static assets are always allowed
             pattern: ^/(_profiler|_wdt|assets|build)/
             security: false
-        api:
-            # Machine-to-machine auth for the ingestion API (spec 04.2, 08.2): stateless,
-            # no login form, no CSRF. Project identity comes only from the API key.
-            pattern: ^/api/v1/
-            stateless: true
-            custom_authenticators:
-                - App\Security\ApiKeyAuthenticator
         main:
             lazy: true
             provider: app_users
@@ -41,8 +31,6 @@ security:
     # Note: Only the *first* matching rule is applied
     access_control:
         - { path: ^/login$, roles: PUBLIC_ACCESS }
-        # Guarded by the `api` firewall's API key, not by user roles.
-        - { path: ^/api/v1/, roles: PUBLIC_ACCESS }
         # In dev, skip login entirely (no seeded users needed to poke at a project locally).
         # allow_if wins over roles when both are present, so this is the only override needed.
         - { path: ^/, roles: IS_AUTHENTICATED_FULLY, allow_if: "request.server.get('APP_ENV') == 'dev' or is_fully_authenticated()" }

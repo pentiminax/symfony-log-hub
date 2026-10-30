@@ -5,9 +5,8 @@ declare(strict_types=1);
 namespace App\Command;
 
 use App\Log\Domain\ProjectId;
-use App\Project\Application\ApiKeyFactory;
-use App\Project\Application\ApiKeyRepositoryInterface;
 use App\Project\Application\ProjectRepositoryInterface;
+use LogHub\EngineBundle\Client\EngineClient;
 use Symfony\Component\Console\Attribute\Argument;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -21,8 +20,7 @@ final class CreateApiKeyCommand
 {
     public function __construct(
         private readonly ProjectRepositoryInterface $projects,
-        private readonly ApiKeyRepositoryInterface $apiKeys,
-        private readonly ApiKeyFactory $apiKeyFactory,
+        private readonly EngineClient $engine,
     ) {
     }
 
@@ -47,11 +45,10 @@ final class CreateApiKeyCommand
             return Command::FAILURE;
         }
 
-        $generated = $this->apiKeyFactory->generate($id, $label);
-        $this->apiKeys->save($generated->apiKey);
+        $created = $this->engine->createApiKey((string) $id, $label);
 
         $io->success(sprintf('API key "%s" created for project "%s".', $label, $projectId));
-        $io->writeln(sprintf('Key: <info>%s</info>', $generated->plaintext));
+        $io->writeln(sprintf('Key: <info>%s</info>', $created->key));
         $io->comment('Shown once. Store it now.');
 
         return Command::SUCCESS;

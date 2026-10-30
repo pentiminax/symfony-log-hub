@@ -4,15 +4,14 @@ declare(strict_types=1);
 
 namespace App\Tests\UI\Component;
 
-use App\Log\Application\LogIngestStoreInterface;
 use App\Log\Domain\LogAttributes;
 use App\Log\Domain\LogId;
 use App\Log\Domain\LogRecord;
-use App\Log\Domain\LogRecordCollection;
 use App\Log\Domain\ProjectId;
 use App\Log\Domain\ResourceAttributes;
 use App\Log\Domain\Severity;
 use App\Security\User;
+use App\Tests\Fake\InMemoryLogSearchStore;
 use App\UI\Component\LogTable;
 use Doctrine\DBAL\Connection;
 use Doctrine\ORM\EntityManagerInterface;
@@ -34,8 +33,9 @@ final class LogTableTest extends WebTestCase
         // exist in the database too: the entity provider refreshes it from there on
         // the next request and drops a token it cannot resolve.
         $this->client = self::createClient();
+        // Keep the container (and the in-memory store) alive across requests.
+        $this->client->disableReboot();
         $connection = self::getContainer()->get(Connection::class);
-        $connection->executeStatement('TRUNCATE TABLE log_record');
         $connection->executeStatement('TRUNCATE TABLE app_user CASCADE');
 
         $user = new User('ops@example.com');
@@ -48,9 +48,9 @@ final class LogTableTest extends WebTestCase
     }
 
     /**
-     * The whole pagination scheme rests on this: `log_record.timestamp` is a
-     * microsecond timestamptz, so a cursor that survives only to the millisecond
-     * silently skips or repeats every row that shares a millisecond with another.
+     * The cursor round-trips through the component (encoded into the cursor stack,
+     * decoded on the next render): it must keep microseconds, or rows that share a
+     * millisecond get skipped or repeated.
      */
     public function testPagingAcrossRowsOneMicrosecondApartLosesNothing(): void
     {
@@ -169,8 +169,7 @@ final class LogTableTest extends WebTestCase
 
     private function store(LogRecord ...$records): void
     {
-        self::getContainer()->get(LogIngestStoreInterface::class)
-            ->storeBatch(new LogRecordCollection(...$records));
+        self::getContainer()->get(InMemoryLogSearchStore::class)->add(...$records);
     }
 
     private function makeRecord(\DateTimeImmutable $timestamp, int $index): LogRecord

@@ -10,8 +10,7 @@ use Symfony\Component\Security\Core\User\UserInterface;
 use Symfony\Component\Uid\Uuid;
 
 /**
- * The human operator of the UI, counterpart to AuthenticatedProject (the machine
- * identity behind the /api/v1/* firewall).
+ * The human operator of the UI.
  *
  * Not split into Domain/Application/Infrastructure like the Log and Project modules:
  * EntityUserProvider::refreshUser() requires the session-stored object to be an
