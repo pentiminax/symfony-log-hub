@@ -32,7 +32,9 @@ final readonly class LogHubClient
 
     public function createProject(string $name): Project
     {
-        return Project::fromArray($this->request('POST', '/v1/projects', ['json' => ['name' => $name]]));
+        return Project::fromArray(
+            $this->request('POST', '/v1/projects', ['json' => ['name' => $name]])
+        );
     }
 
     /** @return list<Project> */

@@ -16,6 +16,10 @@ final readonly class Project
     /** @param array<string, mixed> $data */
     public static function fromArray(array $data): self
     {
-        return new self($data['id'], $data['name'], new \DateTimeImmutable($data['created_at']));
+        return new self(
+            id: $data['id'],
+            name: $data['name'],
+            createdAt: new \DateTimeImmutable($data['created_at'])
+        );
     }
 }
