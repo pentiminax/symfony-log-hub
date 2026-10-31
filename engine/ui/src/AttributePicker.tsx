@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "./api";
+import { KeyCombobox } from "./KeyCombobox";
 import { type AttributeKey, attributeField, opsFor } from "@/lib/attributes";
 import { resolveRange } from "@/lib/range";
 import { scopeBase } from "@/lib/scope";
@@ -44,20 +45,15 @@ export function AttributePicker({ s, onFilter, onColumn }: {
 
   return (
     <>
-      <label className="sr-only" htmlFor="lh-attr">Custom attribute</label>
-      <select
-        id="lh-attr"
-        className={`lh-control pr-1.5 ${key ? "border-brand-line bg-brand-tint" : ""}`}
+      <KeyCombobox
+        keys={list}
         value={key}
-        onChange={(e) => {
-          setKey(e.target.value);
+        onChange={(k) => {
+          setKey(k);
           setOp("equals");
           setValue("");
         }}
-      >
-        <option value="">Attributes…</option>
-        {list.map((k) => <option key={k.key} value={k.key}>{k.key} ({k.count})</option>)}
-      </select>
+      />
       {key && (
         <>
           <label className="sr-only" htmlFor="lh-attr-op">Operator</label>
