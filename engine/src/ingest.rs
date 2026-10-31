@@ -25,16 +25,22 @@ pub async fn ingest(
     let limits = &state.limits;
 
     // Any read error here is, in practice, the limit being hit.
-    let Ok(bytes) = to_bytes(body, limits.max_request_bytes).await else {
-        return Ok((
-            StatusCode::PAYLOAD_TOO_LARGE,
-            Json(json!({"error": "request_too_large", "max_bytes": limits.max_request_bytes})),
-        )
-            .into_response());
+    let bytes = match to_bytes(body, limits.max_request_bytes).await {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::debug!(error = %e, "request body read failed");
+            return Ok((
+                StatusCode::PAYLOAD_TOO_LARGE,
+                Json(json!({"error": "request_too_large", "max_bytes": limits.max_request_bytes})),
+            )
+                .into_response());
+        }
     };
 
-    let payload: Value = serde_json::from_slice(&bytes)
-        .map_err(|_| ApiError::BadRequest("Request payload contains invalid JSON.".into()))?;
+    let payload: Value = serde_json::from_slice(&bytes).map_err(|e| {
+        tracing::debug!(error = %e, "invalid JSON payload");
+        ApiError::BadRequest("Request payload contains invalid JSON.".into())
+    })?;
     let Value::Object(mut payload) = payload else {
         return Err(ApiError::BadRequest(
             "Request payload must be a JSON object.".into(),

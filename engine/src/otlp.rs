@@ -86,7 +86,7 @@ pub async fn export(
             json!({"error": "request_too_large", "max_bytes": max}),
         )
     };
-    let Ok(mut bytes) = to_bytes(body, max).await.map(|b| b.to_vec()) else {
+    let Ok(mut bytes) = to_bytes(body, max).await else {
         return Ok(too_large());
     };
     if gzip {
@@ -101,7 +101,7 @@ pub async fn export(
         if out.len() > max {
             return Ok(too_large());
         }
-        bytes = out;
+        bytes = out.into();
     }
 
     let request = ExportTraceServiceRequest::decode(&bytes[..]).map_err(|_| {

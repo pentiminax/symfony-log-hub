@@ -678,7 +678,9 @@ async fn services_in(
     );
     push_scope(&mut qb, project_id);
     push_range(&mut qb, &range, "\"timestamp\"");
-    qb.push(format_args!(" GROUP BY 1 ORDER BY 1 ASC LIMIT {FACET_LIMIT}"));
+    qb.push(format_args!(
+        " GROUP BY 1 ORDER BY 1 ASC LIMIT {FACET_LIMIT}"
+    ));
     let rows: Vec<(String, i64, i64)> = qb.build_query_as().fetch_all(&s.pool).await?;
     let services: Vec<Value> = rows
         .into_iter()

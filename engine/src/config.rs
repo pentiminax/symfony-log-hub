@@ -49,7 +49,10 @@ impl Config {
         Ok(Self {
             master_key,
             database_url: required("DATABASE_URL")?,
-            listen_addr: optional("LISTEN_ADDR", "0.0.0.0:8080".parse().map_err(addr_err)?)?,
+            listen_addr: optional(
+                "LISTEN_ADDR",
+                "0.0.0.0:8080".parse().map_err(|e| addr_err(&e))?,
+            )?,
             retention_days: optional("RETENTION_DAYS", 14)?,
             limits: Limits {
                 max_request_bytes: optional("LOGHUB_MAX_REQUEST_BYTES", d.max_request_bytes)?,
@@ -69,7 +72,7 @@ impl Config {
     }
 }
 
-fn addr_err(e: std::net::AddrParseError) -> ConfigError {
+fn addr_err(e: &std::net::AddrParseError) -> ConfigError {
     ConfigError(e.to_string())
 }
 

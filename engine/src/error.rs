@@ -18,7 +18,7 @@ pub enum ApiError {
     BadRequest(String),
     #[error("invalid request: {0}")]
     Invalid(String),
-    #[error("storage unavailable")]
+    #[error("storage error: {0}")]
     Storage(#[from] sqlx::Error),
 }
 
