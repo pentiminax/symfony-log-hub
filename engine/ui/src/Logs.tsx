@@ -7,6 +7,8 @@ import { StateView } from "@/components/StateView";
 import { resolveRange } from "@/lib/range";
 import { scopeBase } from "@/lib/scope";
 import { Icon } from "./icons";
+import { AttributePicker } from "./AttributePicker";
+import { type Filter, decodeFilter, encodeFilter } from "@/lib/attributes";
 
 // ---- Types & constants -------------------------------------------------------
 
@@ -25,7 +27,6 @@ type Log = {
   exception: { type: string; message: string; stacktrace?: string | null } | null;
 };
 type SearchResult = { records: Log[]; next_cursor: { timestamp: string; id: string } | null; has_more: boolean };
-type Filter = { field: string; op: string; value: string };
 
 const PER_PAGE = 50;
 const COUNT_CAP = 10_000;
@@ -42,10 +43,7 @@ const str = (v: Json) => (typeof v === "string" ? v : JSON.stringify(v));
 function useExplorerState() {
   const [params, setParams] = useSearchParams();
   const get = (k: string) => params.get(k) ?? "";
-  const filters: Filter[] = params.getAll("f").flatMap((raw) => {
-    const [field, op, ...rest] = raw.split("|");
-    return field && op ? [{ field, op, value: rest.join("|") }] : [];
-  });
+  const filters: Filter[] = params.getAll("f").flatMap((raw) => decodeFilter(raw) ?? []);
   const state = {
     project: get("project"),
     q: get("q"),
@@ -74,7 +72,7 @@ function useExplorerState() {
     );
   const set = (k: string, v: string, replace = false) =>
     update((p) => (v && !(k === "range" && v === "24h") && !(k === "sort" && v === "desc") ? p.set(k, v) : p.delete(k)), replace);
-  const enc = (f: Filter) => `${f.field}|${f.op}|${f.value}`;
+  const enc = encodeFilter;
   const addFilter = (f: Filter) =>
     update((p) => {
       if (!p.getAll("f").includes(enc(f))) p.append("f", enc(f));
@@ -196,10 +194,11 @@ export function Logs() {
         {FACETS.map(([field, prop, label]) => (
           <FacetSelect key={prop} s={s} field={field} prop={prop} label={label} sel={sel} />
         ))}
+        <AttributePicker s={s} onFilter={s.addFilter} onColumn={s.addColumn} />
         {s.filters.map((f) => (
           <span key={`${f.field}|${f.op}|${f.value}`} className="lh-control gap-1.5 border-brand-line bg-brand-tint pr-1.5 text-brand">
             <span className="font-mono text-micro">{f.field}</span>
-            <span className="text-ink-muted">{f.op === "not_equals" ? "is not" : "is"}</span>
+            <span className="text-ink-muted">{f.op === "equals" ? "is" : f.op === "not_equals" ? "is not" : f.op.replace(/_/g, " ")}</span>
             <span className="max-w-40 truncate font-mono text-micro">{f.value}</span>
             <button type="button" className="shrink-0 rounded p-0.5 hover:bg-brand-line/40" onClick={() => s.removeFilter(f)}>
               <Icon name="close" className="size-3" />

@@ -1073,3 +1073,45 @@ async fn all_projects_routes_aggregate_and_require_master_key(pool: PgPool) {
         }
     }
 }
+
+#[sqlx::test]
+async fn attribute_discovery_is_scoped_and_validates_key(pool: PgPool) {
+    let (app, p) = seeded(pool).await;
+    let (other, _) = app.project().await;
+    let path = format!("/v1/projects/{p}/logs");
+
+    let (s, k) = app
+        .admin(Method::GET, &format!("{path}/attribute-keys"), None)
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    assert!(k["keys"].is_array());
+    let (_, k) = app
+        .admin(
+            Method::GET,
+            &format!("/v1/projects/{other}/logs/attribute-keys"),
+            None,
+        )
+        .await;
+    assert_eq!(
+        k,
+        json!({"keys": []}),
+        "another project's attributes never leak"
+    );
+
+    let (s, _) = app
+        .admin(
+            Method::GET,
+            &format!("{path}/attribute-values?key=a.b"),
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    let (s, _) = app
+        .admin(
+            Method::GET,
+            &format!("{path}/attribute-values?key=a-b"),
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY);
+}

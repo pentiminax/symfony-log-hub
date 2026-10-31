@@ -68,6 +68,16 @@ Each record is enriched with resource attributes (service, environment, host), r
 
 To add your own attributes, implement `LogHub\SymfonyBundle\Enricher\LogEnricherInterface` (autoconfigured).
 
+## Custom attributes
+
+Anything you put in the Monolog `context` (or `extra`) is shipped as a log attribute:
+
+```php
+$logger->info('Order placed', ['order_id' => 42, 'user' => ['plan' => 'pro']]);
+```
+
+In the web UI, the **Attributes…** picker next to the filters lists these keys (`order_id`, `user.plan`), filters on them with suggested values, and adds them as table columns. Keys are discovered from the 10 000 most recent logs in the selected time range; arrays and keys with characters other than letters, digits and `_` are not offered.
+
 ## Trace correlation
 
 If `open-telemetry/api` is installed, every log gets the `trace_id` and `span_id` of the active

@@ -91,6 +91,19 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/logs/histogram", post(search::histogram_all))
         .route("/v1/logs/facets/{field}", get(search::facet_all))
         .route("/v1/logs/services", get(search::services_all))
+        .route("/v1/logs/attribute-keys", get(search::attribute_keys_all))
+        .route(
+            "/v1/logs/attribute-values",
+            get(search::attribute_values_all),
+        )
+        .route(
+            "/v1/projects/{project_id}/logs/attribute-keys",
+            get(search::attribute_keys),
+        )
+        .route(
+            "/v1/projects/{project_id}/logs/attribute-values",
+            get(search::attribute_values),
+        )
         .route(
             "/v1/projects/{project_id}/logs/services",
             get(search::services),

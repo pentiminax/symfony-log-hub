@@ -14,6 +14,9 @@ const MAX_LIMIT: i64 = 1000;
 const FACET_LIMIT: i64 = 200;
 const MAX_BUCKETS: i64 = 1000;
 const MAX_INTERVAL_SECONDS: i64 = 86_400;
+const ATTR_SAMPLE: i64 = 10_000;
+const ATTR_KEYS_LIMIT: usize = 100;
+const ATTR_VALUES_LIMIT: usize = 10;
 const SELECT: &str = "SELECT id, project_id, \"timestamp\", severity_text, severity_number, message, channel, \
                       resource, attributes, trace_id, span_id, exception FROM logs";
 
@@ -198,6 +201,10 @@ pub(crate) fn invalid(msg: impl Into<String>) -> ApiError {
     ApiError::Invalid(msg.into())
 }
 
+fn valid_segment(s: &str) -> bool {
+    !s.is_empty() && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+}
+
 fn resolve(field: &str) -> Result<Target, ApiError> {
     if let Some((_, col, kind)) = COLUMNS.iter().find(|(f, _, _)| *f == field) {
         return Ok(Target::Column(col, *kind));
@@ -205,10 +212,7 @@ fn resolve(field: &str) -> Result<Target, ApiError> {
     for (prefix, col) in JSON_COLUMNS {
         if let Some(path) = field.strip_prefix(prefix) {
             let segments: Vec<String> = path.split('.').map(str::to_owned).collect();
-            let valid = |s: &String| {
-                !s.is_empty() && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
-            };
-            if !segments.iter().all(valid) {
+            if !segments.iter().all(|s| valid_segment(s)) {
                 return Err(invalid(format!("Invalid field path \"{field}\".")));
             }
             return Ok(Target::Json(col, segments));
@@ -647,6 +651,159 @@ async fn facet_in(
     Ok(Json(json!({"values": values})))
 }
 
+#[derive(Deserialize)]
+pub struct AttributeValuesQuery {
+    key: String,
+    from: Option<DateTime<Utc>>,
+    to: Option<DateTime<Utc>>,
+}
+
+/// Scalar leaves of an `attributes` object as dotted paths. Flat dotted keys (what SDKs
+/// send) and nested objects yield the same path; keys `resolve` would reject, arrays and
+/// nulls are skipped.
+fn scalar_leaves<'a>(v: &'a Value, prefix: &str, out: &mut Vec<(String, &'a Value)>) {
+    let Value::Object(map) = v else { return };
+    for (k, child) in map {
+        let path = if prefix.is_empty() {
+            k.clone()
+        } else {
+            format!("{prefix}.{k}")
+        };
+        if !path.split('.').all(valid_segment) {
+            continue;
+        }
+        match child {
+            Value::Object(_) => scalar_leaves(child, &path, out),
+            Value::String(_) | Value::Number(_) | Value::Bool(_) => out.push((path, child)),
+            _ => {}
+        }
+    }
+}
+
+fn leaf_type(v: &Value) -> &'static str {
+    match v {
+        Value::Number(_) => "number",
+        Value::Bool(_) => "boolean",
+        _ => "string",
+    }
+}
+
+/// Keys with the number of rows carrying them; a key seen with several types is "string".
+fn summarize_keys(rows: &[Value]) -> Vec<Value> {
+    let mut keys: std::collections::HashMap<String, (i64, &'static str)> = Default::default();
+    for row in rows {
+        let mut leaves = Vec::new();
+        scalar_leaves(row, "", &mut leaves);
+        let mut seen = std::collections::HashSet::new();
+        for (path, v) in leaves {
+            if !seen.insert(path.clone()) {
+                continue;
+            }
+            let t = leaf_type(v);
+            let e = keys.entry(path).or_insert((0, t));
+            e.0 += 1;
+            if e.1 != t {
+                e.1 = "string";
+            }
+        }
+    }
+    let mut keys: Vec<_> = keys.into_iter().collect();
+    keys.sort_by(|a, b| b.1.0.cmp(&a.1.0).then_with(|| a.0.cmp(&b.0)));
+    keys.into_iter()
+        .take(ATTR_KEYS_LIMIT)
+        .map(|(key, (count, t))| json!({"key": key, "count": count, "type": t}))
+        .collect()
+}
+
+fn top_values(rows: &[Value], key: &str) -> Vec<Value> {
+    let mut counts: std::collections::HashMap<String, i64> = Default::default();
+    for row in rows {
+        let mut leaves = Vec::new();
+        scalar_leaves(row, "", &mut leaves);
+        if let Some((_, v)) = leaves.into_iter().find(|(p, _)| p == key) {
+            let text = match v {
+                Value::String(s) => s.clone(),
+                other => other.to_string(),
+            };
+            *counts.entry(text).or_default() += 1;
+        }
+    }
+    let mut counts: Vec<_> = counts.into_iter().collect();
+    counts.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    counts
+        .into_iter()
+        .take(ATTR_VALUES_LIMIT)
+        .map(|(value, count)| json!({"value": value, "count": count}))
+        .collect()
+}
+
+/// The `attributes` of the most recent rows in scope: discovery is a sample, not a scan.
+async fn sample_attributes(
+    s: &AppState,
+    project_id: Option<Uuid>,
+    from: Option<DateTime<Utc>>,
+    to: Option<DateTime<Utc>>,
+) -> Result<Vec<Value>, ApiError> {
+    let range = Range { from, to };
+    check_range(&range)?;
+    let mut qb = QueryBuilder::new("SELECT attributes FROM logs WHERE TRUE");
+    push_scope(&mut qb, project_id);
+    push_range(&mut qb, &range, "\"timestamp\"");
+    qb.push(format_args!(
+        " ORDER BY \"timestamp\" DESC LIMIT {ATTR_SAMPLE}"
+    ));
+    Ok(qb.build_query_scalar().fetch_all(&s.pool).await?)
+}
+
+pub async fn attribute_keys(
+    State(s): State<AppState>,
+    ApiPath(project_id): ApiPath<Uuid>,
+    ApiQuery(range): ApiQuery<RangeQuery>,
+) -> Result<Json<Value>, ApiError> {
+    attribute_keys_in(s, Some(project_id), range).await
+}
+
+pub async fn attribute_keys_all(
+    State(s): State<AppState>,
+    ApiQuery(range): ApiQuery<RangeQuery>,
+) -> Result<Json<Value>, ApiError> {
+    attribute_keys_in(s, None, range).await
+}
+
+async fn attribute_keys_in(
+    s: AppState,
+    project_id: Option<Uuid>,
+    range: RangeQuery,
+) -> Result<Json<Value>, ApiError> {
+    let rows = sample_attributes(&s, project_id, range.from, range.to).await?;
+    Ok(Json(json!({"keys": summarize_keys(&rows)})))
+}
+
+pub async fn attribute_values(
+    State(s): State<AppState>,
+    ApiPath(project_id): ApiPath<Uuid>,
+    ApiQuery(q): ApiQuery<AttributeValuesQuery>,
+) -> Result<Json<Value>, ApiError> {
+    attribute_values_in(s, Some(project_id), q).await
+}
+
+pub async fn attribute_values_all(
+    State(s): State<AppState>,
+    ApiQuery(q): ApiQuery<AttributeValuesQuery>,
+) -> Result<Json<Value>, ApiError> {
+    attribute_values_in(s, None, q).await
+}
+
+async fn attribute_values_in(
+    s: AppState,
+    project_id: Option<Uuid>,
+    q: AttributeValuesQuery,
+) -> Result<Json<Value>, ApiError> {
+    resolve(&format!("attributes.{}", q.key))?;
+    let rows = sample_attributes(&s, project_id, q.from, q.to).await?;
+    Ok(Json(json!({"values": top_values(&rows, &q.key)})))
+}
+
 /// Per service: events and errors (severity_number >= 17) within the optional time range.
 pub async fn services(
     State(s): State<AppState>,
@@ -701,4 +858,54 @@ pub async fn find(
             .fetch_optional(&s.pool)
             .await?;
     row.map(|r| Json(r.into_json())).ok_or(ApiError::NotFound)
+}
+
+#[cfg(test)]
+mod attribute_discovery_tests {
+    use super::*;
+
+    #[test]
+    fn keys_flatten_nested_and_flat_skip_arrays_and_bad_segments() {
+        let rows = [
+            json!({"order_id": 1, "user": {"id": 7}, "tags": ["a"], "bad-key": 1, "url.path": "/x"}),
+            json!({"order_id": 2, "user.id": 8, "n": null}),
+        ];
+        let keys = summarize_keys(&rows);
+        let find = |k: &str| keys.iter().find(|v| v["key"] == k).cloned();
+        assert_eq!(
+            find("order_id").unwrap(),
+            json!({"key": "order_id", "count": 2, "type": "number"})
+        );
+        assert_eq!(
+            find("user.id").unwrap()["count"],
+            2,
+            "flat and nested are the same key"
+        );
+        assert_eq!(find("url.path").unwrap()["type"], "string");
+        assert!(find("tags").is_none() && find("bad-key").is_none() && find("n").is_none());
+    }
+
+    #[test]
+    fn mixed_types_degrade_to_string_and_keys_are_capped() {
+        let rows = [json!({"a": 1}), json!({"a": "x"})];
+        assert_eq!(summarize_keys(&rows)[0]["type"], "string");
+        let wide: serde_json::Map<String, Value> =
+            (0..150).map(|i| (format!("k{i}"), json!(i))).collect();
+        assert_eq!(
+            summarize_keys(&[Value::Object(wide)]).len(),
+            ATTR_KEYS_LIMIT
+        );
+    }
+
+    #[test]
+    fn values_are_top_n_by_count() {
+        let rows: Vec<Value> = (0..30)
+            .map(
+                |i| json!({"u": {"plan": if i < 5 { "pro".to_string() } else { format!("p{i}") }}}),
+            )
+            .collect();
+        let values = top_values(&rows, "u.plan");
+        assert_eq!(values.len(), ATTR_VALUES_LIMIT);
+        assert_eq!(values[0], json!({"value": "pro", "count": 5}));
+    }
 }
