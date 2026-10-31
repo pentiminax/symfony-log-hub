@@ -11,6 +11,7 @@ use LogHub\SymfonyBundle\Model\ResourceAttributes;
 use LogHub\SymfonyBundle\Model\Severity;
 use Monolog\Level;
 use Monolog\LogRecord as MonologLogRecord;
+use Monolog\Processor\PsrLogMessageProcessor;
 
 final class MonologRecordMapper
 {
@@ -40,7 +41,7 @@ final class MonologRecordMapper
         return new LogRecord(
             timestamp: \DateTimeImmutable::createFromInterface($record->datetime)->setTimezone(new \DateTimeZone('UTC')),
             severity: new Severity($record->level->getName(), self::LEVEL_TO_SEVERITY_NUMBER[$record->level->value] ?? 0),
-            message: $record->message,
+            message: (new PsrLogMessageProcessor())($record)->message,
             channel: $record->channel,
             resource: new ResourceAttributes(),
             attributes: $attributes,

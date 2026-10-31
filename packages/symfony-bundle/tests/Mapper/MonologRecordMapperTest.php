@@ -41,6 +41,16 @@ final class MonologRecordMapperTest extends TestCase
         self::assertSame('2026-09-09T14:45:01.231Z', $record->timestamp->format('Y-m-d\TH:i:s.v\Z'));
     }
 
+    public function testPlaceholdersAreInterpolatedAndContextKept(): void
+    {
+        $monolog = $this->monologRecord(context: ['sql' => 'SELECT 1'])->with(message: 'Executing query: {sql}');
+
+        $record = $this->mapper->map($monolog);
+
+        self::assertSame('Executing query: SELECT 1', $record->message);
+        self::assertSame(['sql' => 'SELECT 1'], $record->attributes->toArray());
+    }
+
     public function testContextAndExtraBecomeAttributes(): void
     {
         $record = $this->mapper->map($this->monologRecord(
