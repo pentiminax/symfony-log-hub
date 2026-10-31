@@ -39,6 +39,7 @@ const JSON_COLUMNS: [(&str, &str); 3] = [
     ("resource.", "resource"),
     ("exception.", "exception"),
 ];
+const MAX_IN_VALUES: usize = 50;
 const FACETS: [&str; 3] = ["service.name", "environment", "channel"];
 
 #[derive(Clone, Copy)]
@@ -59,6 +60,8 @@ pub(crate) enum Target {
 enum Operator {
     Equals,
     NotEquals,
+    In,
+    NotIn,
     Contains,
     NotContains,
     GreaterThan,
@@ -408,6 +411,33 @@ pub(crate) fn push_filter(
                 " NOT ILIKE "
             })
             .push_bind(like_pattern(&scalar_string(value()?)?));
+        }
+        Operator::In | Operator::NotIn => {
+            let items = value()?
+                .as_array()
+                .filter(|a| (1..=MAX_IN_VALUES).contains(&a.len()))
+                .ok_or_else(|| {
+                    invalid(format!(
+                        "in/not_in require an array of 1 to {MAX_IN_VALUES} values"
+                    ))
+                })?;
+            if items.iter().any(|v| !(v.is_string() || v.is_number())) {
+                return Err(invalid("in/not_in values must be strings or numbers"));
+            }
+            // Same predicate as (not_)equals per item, so typing and NULL handling match.
+            let (sql_op, glue) = if f.operator == Operator::In {
+                ("=", " OR ")
+            } else {
+                ("!=", " AND ")
+            };
+            qb.push("(");
+            for (i, item) in items.iter().enumerate() {
+                if i > 0 {
+                    qb.push(glue);
+                }
+                push_cmp(qb, &target, sql_op, item)?;
+            }
+            qb.push(")");
         }
         Operator::Between => {
             let [lo, hi] = value()?
@@ -907,5 +937,53 @@ mod attribute_discovery_tests {
         let values = top_values(&rows, "u.plan");
         assert_eq!(values.len(), ATTR_VALUES_LIMIT);
         assert_eq!(values[0], json!({"value": "pro", "count": 5}));
+    }
+}
+
+#[cfg(test)]
+mod in_operator_tests {
+    use super::*;
+
+    fn sql(field: &str, op: &str, value: Value) -> Result<String, ApiError> {
+        let f: Filter =
+            serde_json::from_value(json!({"field": field, "operator": op, "value": value}))
+                .unwrap();
+        let mut qb = QueryBuilder::<Postgres>::new("");
+        push_filter(&mut qb, &f, resolve)?;
+        Ok(qb.sql().to_string())
+    }
+
+    #[test]
+    fn in_ors_and_not_in_ands_bound_equalities() {
+        assert_eq!(
+            sql("severity.text", "in", json!(["INFO", "WARN"])).unwrap(),
+            " AND (severity_text = $1 OR severity_text = $2)"
+        );
+        assert_eq!(
+            sql("channel", "not_in", json!(["a", "b", "c"])).unwrap(),
+            " AND (channel != $1 AND channel != $2 AND channel != $3)"
+        );
+        let attr = sql("attributes.n", "in", json!([1, "x"])).unwrap();
+        assert!(
+            attr.contains("jsonb_typeof") && attr.contains(" OR "),
+            "{attr}"
+        );
+    }
+
+    #[test]
+    fn in_rejects_bad_values() {
+        let many: Vec<Value> = (0..=MAX_IN_VALUES).map(|i| json!(i)).collect();
+        for bad in [
+            json!([]),
+            json!("x"),
+            Value::Null,
+            json!([[1]]),
+            json!([null]),
+            Value::Array(many),
+        ] {
+            assert!(sql("channel", "in", bad.clone()).is_err(), "{bad}");
+            assert!(sql("channel", "not_in", bad).is_err());
+        }
+        assert!(sql("severity_number", "in", json!(["abc"])).is_err());
     }
 }

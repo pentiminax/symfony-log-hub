@@ -706,6 +706,20 @@ async fn search_filters_operators_and_text(pool: PgPool) {
         .await,
         ["d warn", "e fatal"]
     );
+    assert_eq!(
+        app.messages(
+            &p,
+            q(json!([f("service.name", "in", json!(["web", "billing"]))]))
+        )
+        .await
+        .len(),
+        5
+    );
+    assert_eq!(
+        app.messages(&p, q(json!([f("service.name", "not_in", json!(["web"]))])))
+            .await,
+        ["a info", "c error", "e fatal"]
+    );
     // Several filters AND together.
     let both = q(json!([
         f("service.name", "equals", json!("billing")),
@@ -728,6 +742,8 @@ async fn search_filters_operators_and_text(pool: PgPool) {
         f("attributes.a'b", "equals", json!("x")),
         f("severity", "equals", json!("abc")),
         f("message", "equals", Value::Null),
+        f("service.name", "in", json!([])),
+        f("service.name", "not_in", json!("web")),
         f("timestamp", "after", json!("yesterday")),
     ] {
         let (s, _) = app

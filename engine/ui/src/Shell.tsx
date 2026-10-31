@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { NavLink, Outlet, useLocation, useSearchParams } from "react-router";
+import { useEffect, useRef } from "react";
+import { NavLink, Outlet, useLocation, useNavigate, useSearchParams } from "react-router";
 import { Button } from "@/components/ui/button";
 import { DEFAULT_RANGE, RANGES } from "@/lib/range";
 import { cn } from "@/lib/utils";
@@ -79,7 +80,36 @@ export function Shell() {
       return next;
     });
 
-  const showPeriod = !/^\/(projects|traces\/)/.test(pathname);
+  const navigate = useNavigate();
+  const onLogs = pathname === "/logs";
+  const pendingFocus = useRef(false);
+  // The Logs QueryBar owns the ⌘K listener; we replay the shortcut to it.
+  const pressK = () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true }));
+  const openSearch = () => {
+    if (onLogs) return pressK();
+    pendingFocus.current = true;
+    navigate(to("/logs"));
+  };
+  useEffect(() => {
+    if (onLogs && pendingFocus.current) {
+      pendingFocus.current = false;
+      pressK();
+    }
+  }, [onLogs]);
+  useEffect(() => {
+    if (onLogs) return;
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        openSearch();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
+  const page = nav.find((n) => ("end" in n ? pathname === n.to : pathname.startsWith(n.to)))?.label ?? "";
+  const showPeriod = !/^\/(projects|traces\/|logs)/.test(pathname);
 
   return (
     <div className="flex h-dvh overflow-hidden bg-background">
@@ -113,14 +143,23 @@ export function Shell() {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex flex-wrap items-center gap-2 border-b border-border bg-background px-4 py-2">
+        <header className="flex flex-wrap items-center gap-2 border-b border-border bg-background px-4 py-2 md:h-16 md:flex-nowrap md:gap-3 md:px-[30px] md:py-0">
           <span className="mr-auto flex items-center gap-2 md:hidden">
             <span className="flex size-6 items-center justify-center rounded bg-primary text-primary-foreground">
               <Icon name="logs" className="size-3.5" />
             </span>
             <span className="text-body font-semibold tracking-tight">LogHub</span>
           </span>
-          <span className="mr-auto hidden md:block" />
+          <span className="mr-auto hidden text-[13px] text-muted-foreground md:block">Workspace <span aria-hidden className="px-1.5">/</span> {page}</span>
+          <button
+            type="button"
+            onClick={openSearch}
+            aria-keyshortcuts="Control+K Meta+K"
+            className="hidden items-center gap-1.5 rounded-md px-1 text-xs text-muted-foreground hover:text-foreground md:flex"
+          >
+            <kbd className="rounded bg-muted px-1.5 py-0.5 font-sans text-[11px] font-medium">⌘ K</kbd>
+            Search
+          </button>
           <label htmlFor="project-select" className="sr-only">Project</label>
           <OutlineSelect icon="chevrons-up-down" id="project-select" value={project} onChange={(e) => setParam("project", e.target.value)}>
             <option value="">All projects</option>

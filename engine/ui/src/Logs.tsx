@@ -1,19 +1,20 @@
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { useIsFetching, useQuery } from "@tanstack/react-query";
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
-import { ApiError, api } from "./api";
-import { Severity, LEVELS, cap } from "@/components/Severity";
-import { StateView } from "@/components/StateView";
+import { type Project, api } from "./api";
+import { AddFilter, FilterChip } from "@/components/FilterChip";
+import { QueryBar } from "@/components/QueryBar";
+import { Severity } from "@/components/Severity";
 import { resolveRange } from "@/lib/range";
 import { scopeBase } from "@/lib/scope";
 import { Icon } from "./icons";
-import { AttributePicker } from "./AttributePicker";
-import { type Filter, decodeFilter, encodeFilter } from "@/lib/attributes";
+import { LogsTable, lookup } from "./LogsTable";
+import { type Filter, decodeFilter, encodeFilter, toEngine } from "@/lib/attributes";
 
 // ---- Types & constants -------------------------------------------------------
 
-type Json = unknown;
-type Log = {
+export type Json = unknown;
+export type Log = {
   id: string;
   project_id: string;
   timestamp: string;
@@ -26,17 +27,18 @@ type Log = {
   span_id: string | null;
   exception: { type: string; message: string; stacktrace?: string | null } | null;
 };
-type SearchResult = { records: Log[]; next_cursor: { timestamp: string; id: string } | null; has_more: boolean };
+export type SearchResult = { records: Log[]; next_cursor: { timestamp: string; id: string } | null; has_more: boolean };
 
-const PER_PAGE = 50;
-const COUNT_CAP = 10_000;
-const FACETS = [
-  ["service.name", "service", "Service"],
-  ["environment", "env", "Environment"],
-  ["channel", "channel", "Channel"],
+const LIVE_MS = 5000;
+/** Pre-chip URL params: still honoured, shown as chips; editing one moves it into `f`. */
+const LEGACY = [
+  ["level", "level"],
+  ["service", "service.name"],
+  ["env", "environment"],
+  ["channel", "channel"],
 ] as const;
 
-const str = (v: Json) => (typeof v === "string" ? v : JSON.stringify(v));
+export const str = (v: Json) => (typeof v === "string" ? v : JSON.stringify(v));
 
 // ---- URL state ---------------------------------------------------------------
 
@@ -59,6 +61,7 @@ function useExplorerState() {
     logProject: get("logp"),
     columns: params.getAll("col"),
     filters,
+    legacy: LEGACY.flatMap(([k, field]) => (get(k) ? [{ field, op: "equals", value: get(k) }] : [])),
   };
   /** Edit the query string; `replace` for keystroke-ish changes so Back stays useful. */
   const update = (fn: (p: URLSearchParams) => void, replace = false) =>
@@ -77,12 +80,28 @@ function useExplorerState() {
     update((p) => {
       if (!p.getAll("f").includes(enc(f))) p.append("f", enc(f));
     });
+  const dropLegacy = (p: URLSearchParams, f: Filter) => {
+    const k = LEGACY.find(([key, field]) => field === f.field && p.get(key) === f.value)?.[0];
+    if (k) p.delete(k);
+  };
   const removeFilter = (f: Filter) =>
     update((p) => {
-      const rest = p.getAll("f").filter((x) => x !== enc(f));
+      const all = p.getAll("f");
+      if (!all.includes(enc(f))) return dropLegacy(p, f);
       p.delete("f");
-      rest.forEach((x) => p.append("f", x));
+      all.filter((x) => x !== enc(f)).forEach((x) => p.append("f", x));
     });
+  const replaceFilter = (old: Filter, next: Filter) =>
+    update((p) => {
+      const all = p.getAll("f");
+      if (!all.includes(enc(old))) {
+        dropLegacy(p, old);
+        return p.append("f", enc(next));
+      }
+      p.delete("f");
+      all.forEach((x) => p.append("f", x === enc(old) ? enc(next) : x));
+    });
+  const clearFilterChips = () => update((p) => ["f", ...LEGACY.map(([k]) => k)].forEach((k) => p.delete(k)));
   const clearFilters = () =>
     update((p) => ["f", "level", "service", "env", "channel", "q"].forEach((k) => p.delete(k)));
   const reset = () =>
@@ -94,25 +113,21 @@ function useExplorerState() {
       p.delete("col");
       rest.forEach((x) => p.append("col", x));
     });
-  return { ...state, set, update, addFilter, removeFilter, clearFilters, reset, addColumn, removeColumn };
+  return { ...state, set, update, addFilter, removeFilter, replaceFilter, clearFilterChips, clearFilters, reset, addColumn, removeColumn };
 }
-type Explorer = ReturnType<typeof useExplorerState>;
+export type Explorer = ReturnType<typeof useExplorerState>;
 
 // ---- Engine query building ---------------------------------------------------
 
-function engineFilters(s: Explorer) {
-  const out: { field: string; operator: string; value?: unknown }[] = s.filters.map((f) => ({
-    field: f.field,
-    operator: f.op,
-    value: f.value,
-  }));
-  const band = LEVELS.find((l) => l[0] === s.level)?.[1];
-  if (band) out.push({ field: "severity", operator: "between", value: band });
-  for (const [field, prop] of FACETS) if (s[prop]) out.push({ field, operator: "equals", value: s[prop] });
-  return out;
+export function engineFilters(s: Explorer) {
+  // Legacy params go through the same conversion as chips (level -> severity band, the rest equals).
+  return [...s.legacy, ...s.filters].flatMap((f) => toEngine(f) ?? []);
 }
 
-const queryBody = (s: Explorer) => ({
+/** Identity of the engine-facing question: toggling a disabled or invalid chip must not reset paging. */
+export const queryIdentity = (s: Explorer) => JSON.stringify([s.project, s.q, s.range, s.from, s.to, s.sort, engineFilters(s)]);
+
+export const queryBody = (s: Explorer) => ({
   range: resolveRange(s),
   search: s.q || null,
   filters: engineFilters(s),
@@ -122,348 +137,88 @@ const queryBody = (s: Explorer) => ({
 
 export function Logs() {
   const s = useExplorerState();
-  const [refreshMs, setRefreshMs] = useState(0);
-  const [qInput, setQInput] = useState(s.q);
+  const [live, setLive] = useState(false);
+  const refreshMs = live ? LIVE_MS : 0;
+  const projects = useQuery({ queryKey: ["projects"], queryFn: () => api<Project[]>("/v1/projects") });
 
-  // Debounced search box -> URL. External changes (Reset, back/forward) flow back in.
-  useEffect(() => setQInput(s.q), [s.q]);
+  const exportRef = useRef<(() => void) | null>(null);
+  // A chip just applied shows the pending spinner until the logs query it triggered settles.
+  const [edited, setEdited] = useState<string | null>(null);
+  const fetching = useIsFetching({ queryKey: ["logs"] });
+  const seen = useRef(false);
   useEffect(() => {
-    const q = qInput.trim() === "" ? "" : qInput;
-    // Compare the normalized value, or a whitespace-only box re-fires this every 400ms.
-    if (q === s.q) return;
-    const t = setTimeout(() => s.set("q", q, true), 400);
+    if (!edited) return;
+    if (fetching > 0) seen.current = true;
+    else if (seen.current) {
+      seen.current = false;
+      setEdited(null);
+    }
+  }, [edited, fetching]);
+  // The edit may not change the query at all (no fetch): don't spin forever.
+  useEffect(() => {
+    if (!edited) return;
+    // A fetch already seen clears the spinner when it settles, however slow it is.
+    const t = setTimeout(() => seen.current || setEdited(null), 4000);
     return () => clearTimeout(t);
-  });
+  }, [edited]);
+  const changed = (f: Filter, next?: Filter) => {
+    // Only a change to the engine-facing question will refetch, so only then show the pending state.
+    if (JSON.stringify(toEngine(next ?? f)) !== JSON.stringify(next ? toEngine(f) : null)) {
+      seen.current = false;
+      setEdited(encodeFilter(next ?? f));
+    }
+    if (next) s.replaceFilter(f, next);
+    else s.addFilter(f);
+  };
 
-  const hasFilters = s.filters.length > 0 || !!(s.level || s.service || s.env || s.channel);
-  const sel = (id: string, label: string, value: string, prop: string, children: ReactNode, disabled = false) => (
-    <>
-      <label className="sr-only" htmlFor={id}>
-        {label}
-      </label>
-      <select
-        id={id}
-        className={`lh-control pr-1.5 ${value ? "border-brand-line bg-brand-tint" : ""}`}
-        value={value}
-        disabled={disabled}
-        onChange={(e) => s.set(prop, e.target.value)}
-      >
-        {children}
-      </select>
-    </>
-  );
+  const hasFilters = s.filters.length > 0 || s.legacy.length > 0;
+  const projectName = projects.data?.find((p) => p.id === s.project)?.name ?? s.project;
 
   return (
     <div className="flex min-h-full flex-col">
-      <header className="flex flex-wrap items-center gap-3 px-4 pt-4 pb-3 sm:px-6">
-        <h1 className="mr-auto text-lg font-semibold tracking-tight">Logs</h1>
-        <label className="lh-control gap-1.5 pr-2.5" title="Auto-refresh">
-          <span className="sr-only">Auto-refresh</span>
-          <select className="bg-transparent text-body outline-none" value={refreshMs} onChange={(e) => setRefreshMs(Number(e.target.value))}>
-            <option value={0}>Refresh: off</option>
-            <option value={5000}>5s</option>
-            <option value={15000}>15s</option>
-            <option value={60000}>1m</option>
-          </select>
-        </label>
+      <header className="flex flex-wrap items-center justify-between gap-3 px-4 pt-[26px] pb-4 sm:px-[30px]">
+        <div className="flex flex-col gap-1">
+          <h1 className="text-[24px] leading-tight font-semibold tracking-tight">Logs</h1>
+          <p className="text-body text-ink-muted">Search, filter and shape events from every project</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className={`lh-control h-[34px] rounded-md px-3 font-medium ${live ? "border-brand-line bg-brand-tint text-brand" : "bg-canvas"}`}
+            aria-pressed={live}
+            title={`Refresh the results every ${LIVE_MS / 1000}s`}
+            onClick={() => setLive(!live)}
+          >
+            Live tail
+            <span className={`size-[7px] rounded-full ${live ? "animate-pulse bg-[#16A34A]" : "bg-ink-faint"}`} aria-hidden="true" />
+          </button>
+          <button type="button" className="lh-control h-[34px] rounded-md bg-canvas px-3 font-medium" title="Download the loaded results as CSV" onClick={() => exportRef.current?.()}>
+            <Icon name="download" className="size-3.5" />
+            Export
+          </button>
+        </div>
       </header>
 
-      <div className="px-4 sm:px-6">
-        <div className="relative">
-          <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-ink-faint">
-            <Icon name="search" />
-          </span>
-          <input
-            type="search"
-            className="lh-input pl-9"
-            value={qInput}
-            onChange={(e) => setQInput(e.target.value)}
-            placeholder="Search messages…"
-            aria-label="Search log messages"
-          />
-        </div>
+      <div className="px-4 sm:px-[30px]">
+        <QueryBar q={s.q} range={s.range} from={s.from} to={s.to} onSet={s.set} />
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 px-4 py-3 sm:px-6">
-        {sel("lh-level", "Level", s.level, "level", (
-          <>
-            <option value="">All levels</option>
-            {LEVELS.map(([v]) => <option key={v} value={v}>{cap(v)}</option>)}
-          </>
+      <div className="flex flex-wrap items-center gap-2 px-4 py-4 sm:px-[30px]" role="group" aria-label="Filters">
+        {s.project && <FilterChip s={s} locked filter={{ field: "project", op: "equals", value: projectName }} />}
+        {[...s.legacy.filter((l) => !s.filters.some((f) => encodeFilter(f) === encodeFilter(l))), ...s.filters].map((f) => (
+          <FilterChip key={encodeFilter(f)} s={s} filter={f} pending={edited === encodeFilter(f) && fetching > 0} onChange={(next) => changed(f, next)} onRemove={() => s.removeFilter(f)} />
         ))}
-        {FACETS.map(([field, prop, label]) => (
-          <FacetSelect key={prop} s={s} field={field} prop={prop} label={label} sel={sel} />
-        ))}
-        <AttributePicker s={s} onFilter={s.addFilter} onColumn={s.addColumn} />
-        {s.filters.map((f) => (
-          <span key={`${f.field}|${f.op}|${f.value}`} className="lh-control gap-1.5 border-brand-line bg-brand-tint pr-1.5 text-brand">
-            <span className="font-mono text-micro">{f.field}</span>
-            <span className="text-ink-muted">{f.op === "equals" ? "is" : f.op === "not_equals" ? "is not" : f.op.replace(/_/g, " ")}</span>
-            <span className="max-w-40 truncate font-mono text-micro">{f.value}</span>
-            <button type="button" className="shrink-0 rounded p-0.5 hover:bg-brand-line/40" onClick={() => s.removeFilter(f)}>
-              <Icon name="close" className="size-3" />
-              <span className="sr-only">Remove this filter</span>
-            </button>
-          </span>
-        ))}
-        {(hasFilters || s.q) && (
-          <button type="button" className="lh-button lh-button-quiet" onClick={s.reset}>
-            Reset
+        <AddFilter s={s} onAdd={(f) => changed(f)} />
+        {hasFilters && (
+          <button type="button" className="rounded px-1 text-label text-ink-muted hover:text-ink" onClick={s.clearFilterChips}>
+            Clear all
           </button>
         )}
       </div>
 
-      <Results s={s} refreshMs={refreshMs} hasFilters={hasFilters} />
+      <LogsTable s={s} refreshMs={refreshMs} hasFilters={hasFilters} exportRef={exportRef} />
       {s.log && <Drawer s={s} />}
     </div>
-  );
-}
-
-function FacetSelect({ s, field, prop, label, sel }: {
-  s: Explorer;
-  field: string;
-  prop: "service" | "env" | "channel";
-  label: string;
-  sel: (id: string, label: string, value: string, prop: string, children: ReactNode, disabled?: boolean) => ReactNode;
-}) {
-  const facet = useQuery({
-    queryKey: ["facet", s.project, field, s.range, s.from, s.to],
-    queryFn: () => {
-      const r = resolveRange(s);
-      const qs = new URLSearchParams();
-      if (r.from) qs.set("from", r.from);
-      if (r.to) qs.set("to", r.to);
-      return api<{ values: string[] }>(`${scopeBase(s.project)}/logs/facets/${field}?${qs}`);
-    },
-  });
-  const values = facet.data?.values ?? [];
-  const current = s[prop];
-  return sel(`lh-${prop}`, label, current, prop, (
-    <>
-      <option value="">All {label}s</option>
-      {current && !values.includes(current) && <option value={current}>{current}</option>}
-      {values.map((v) => <option key={v} value={v}>{v}</option>)}
-    </>
-  ), values.length === 0 && !current);
-}
-
-// ---- Results table -----------------------------------------------------------
-
-type CursorT = { timestamp: string; id: string };
-
-function Results({ s, refreshMs, hasFilters }: { s: Explorer; refreshMs: number; hasFilters: boolean }) {
-  // Keyset pages already left behind. Keyed on the question so a new filter starts at page 1.
-  const identity = JSON.stringify([s.project, s.q, s.range, s.from, s.to, s.level, s.service, s.env, s.channel, s.filters, s.sort]);
-  const [stack, setStack] = useState<{ identity: string; cursors: CursorT[] }>({ identity, cursors: [] });
-  const cursors = stack.identity === identity ? stack.cursors : [];
-  const cursor = cursors[cursors.length - 1];
-
-  const search = useQuery({
-    queryKey: ["logs", identity, cursor],
-    queryFn: () =>
-      api<SearchResult>(`${scopeBase(s.project)}/logs/search`, {
-        method: "POST",
-        body: { ...queryBody(s), sort: { field: "timestamp", direction: s.sort }, limit: PER_PAGE, ...(cursor ? { cursor } : {}) },
-      }),
-    placeholderData: keepPreviousData,
-    // Page 2+ is a stable historical slice; polling it would only show the same rows.
-    refetchInterval: refreshMs > 0 && cursors.length === 0 ? refreshMs : false,
-  });
-  const count = useQuery({
-    queryKey: ["logs-count", identity],
-    queryFn: () => api<{ count: number }>(`${scopeBase(s.project)}/logs/count`, { method: "POST", body: { ...queryBody(s), max: COUNT_CAP } }),
-    enabled: !search.error,
-    placeholderData: keepPreviousData,
-    refetchInterval: refreshMs > 0 && cursors.length === 0 ? refreshMs : false,
-  });
-
-  const records = search.data?.records ?? [];
-  const next = search.data?.next_cursor;
-  const total = count.data?.count ?? 0;
-  const capped = total >= COUNT_CAP;
-  const err = search.error
-    ? search.error instanceof ApiError && search.error.status === 422
-      ? `Invalid query: ${search.error.message}`
-      : search.error.message
-    : null;
-  const go = (c: CursorT[]) => setStack({ identity, cursors: c });
-  const th = "px-2 py-2 font-medium";
-
-  return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 sm:px-6">
-        <p className="text-body text-ink-muted" aria-live="polite">
-          {err ? (
-            "—"
-          ) : (
-            <>
-              <span className="tnum font-medium text-ink">
-                {total.toLocaleString("en-US")}
-                {capped && "+"}
-              </span>{" "}
-              {total === 1 && !capped ? "log" : "logs"}
-              {cursors.length > 0 && <span className="text-ink-faint"> · page <span className="tnum">{cursors.length + 1}</span></span>}
-            </>
-          )}
-        </p>
-        <div className="flex items-center gap-2">
-          {search.isFetching && <span className="text-micro text-ink-faint">Updating…</span>}
-          <button type="button" className="lh-control text-ink-muted" onClick={() => s.set("sort", s.sort === "desc" ? "asc" : "desc")} title={`Sort by time, ${s.sort === "desc" ? "newest" : "oldest"} first`}>
-            <Icon name={s.sort === "desc" ? "chevron-down" : "chevron-up"} className="size-3.5" />
-            <span>{s.sort === "desc" ? "Newest" : "Oldest"}</span>
-          </button>
-        </div>
-      </div>
-
-      {err && <StateView kind="error" title="Unable to load logs" action={{ label: "Try again", onClick: () => search.refetch() }}>{err}</StateView>}
-
-      {/* relative: the rows' absolutely positioned sr-only labels must not overflow the page on narrow screens. */}
-      <div className="relative hidden min-h-0 flex-1 overflow-x-auto border-t border-line md:block">
-        <table className="w-full min-w-3xl border-collapse text-body">
-          <thead className="sticky top-0 z-10 bg-canvas/95 backdrop-blur">
-            <tr className="border-b border-line text-left text-label text-ink-muted">
-              <th scope="col" className="w-48 px-4 py-2 font-medium sm:px-6">Time</th>
-              <th scope="col" className={`w-24 ${th}`}>Level</th>
-              <th scope="col" className={`w-40 ${th}`}>Service</th>
-              <th scope="col" className={`w-32 ${th}`}>Channel</th>
-              <th scope="col" className={th}>Message</th>
-              {s.columns.map((c) => (
-                <th key={c} scope="col" className={`w-40 ${th}`}>
-                  <span className="flex items-center gap-1">
-                    <span className="truncate font-mono" title={c}>{c}</span>
-                    <button type="button" className="shrink-0 rounded p-0.5 text-ink-faint hover:text-ink" onClick={() => s.removeColumn(c)}>
-                      <Icon name="close" className="size-3" />
-                      <span className="sr-only">Remove column {c}</span>
-                    </button>
-                  </span>
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {records.map((r) => (
-              <Row key={r.id} r={r} s={s} />
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <ul className="divide-y divide-border border-y border-border md:hidden" aria-label="Logs">
-        {records.map((r) => {
-          const service = lookup(r.resource, "service.name");
-          return (
-            <li key={r.id}>
-              <button
-                type="button"
-                className="flex w-full flex-col gap-1 px-4 py-3 text-left active:bg-muted"
-                onClick={() => s.update((p) => { p.set("log", r.id); if (!s.project) p.set("logp", r.project_id); })}
-              >
-                <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <Severity n={r.severity.number} />
-                  <time className="tnum text-label text-muted-foreground" dateTime={r.timestamp}>
-                    {new Date(r.timestamp).toLocaleString("en-US", { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}
-                  </time>
-                  {service != null && <span className="truncate text-label text-muted-foreground">{str(service)}</span>}
-                </span>
-                <span className="line-clamp-3 break-words font-mono text-body">{r.message}</span>
-              </button>
-            </li>
-          );
-        })}
-      </ul>
-
-      {records.length === 0 && !err && !search.isPending && <EmptyTable rangeEmpty={!hasFilters && !s.q} onClear={s.clearFilters} />}
-
-      {(search.data?.has_more || cursors.length > 0) && (
-        <div className="flex items-center justify-end gap-2 border-t border-line px-4 py-2.5 sm:px-6">
-          <button type="button" className="lh-button lh-button-quiet" disabled={cursors.length === 0} onClick={() => go(cursors.slice(0, -1))}>
-            <Icon name="chevron-left" className="size-3.5" /> Previous
-          </button>
-          <button type="button" className="lh-button lh-button-quiet" disabled={!next || !search.data?.has_more || search.isPlaceholderData} onClick={() => next && go([...cursors, next])}>
-            Next <Icon name="chevron-right" className="size-3.5" />
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-const lookup = (obj: Record<string, Json>, path: string): Json => {
-  // Engine returns flat dotted keys ("service.name") or nested; accept both.
-  if (path in obj) return obj[path];
-  return path.split(".").reduce<Json>((o, k) => (o && typeof o === "object" ? (o as Record<string, Json>)[k] : undefined), obj);
-};
-
-function cell(r: Log, path: string): string | null {
-  const v = path.startsWith("attributes.") ? lookup(r.attributes, path.slice(11))
-    : path.startsWith("resource.") ? lookup(r.resource, path.slice(9))
-    : path.startsWith("exception.") ? (r.exception ? lookup(r.exception, path.slice(10)) : null)
-    : path === "service.name" ? lookup(r.resource, "service.name")
-    : path === "environment" ? lookup(r.resource, "deployment.environment.name") ?? lookup(r.resource, "environment")
-    : path === "channel" ? r.channel
-    : path === "severity.text" ? r.severity.text
-    : path === "trace.id" ? r.trace_id
-    : path === "span.id" ? r.span_id
-    : null;
-  return v == null ? null : str(v);
-}
-
-function Row({ r, s }: { r: Log; s: Explorer }) {
-  const d = new Date(r.timestamp);
-  const service = lookup(r.resource, "service.name");
-  const filtered = s.filters.some((f) => f.field === "message" && f.op === "equals" && f.value === r.message);
-  const open = () => s.update((p) => { p.set("log", r.id); if (!s.project) p.set("logp", r.project_id); });
-  const filterLabel = filtered ? "Remove filter" : "Filter for this value";
-  return (
-    <tr
-      className={`group h-row cursor-pointer border-b border-line/70 align-middle transition-colors hover:bg-sunken ${s.log === r.id ? "bg-brand-tint hover:bg-brand-tint" : ""}`}
-      onClick={open}
-    >
-      <td className="truncate px-4 py-0 sm:px-6">
-        <time className="tnum text-ink-muted" dateTime={r.timestamp}>
-          {d.toLocaleString("en-US", { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}
-          <span className="text-ink-faint">.{String(d.getMilliseconds()).padStart(3, "0")}</span>
-        </time>
-      </td>
-      <td className="px-2 py-0"><Severity n={r.severity.number} /></td>
-      <td className="max-w-40 truncate px-2 py-0 text-ink-muted" title={str(service ?? "")}>{service == null ? "—" : str(service)}</td>
-      <td className="max-w-32 truncate px-2 py-0 text-ink-muted" title={r.channel ?? ""}>{r.channel ?? "—"}</td>
-      <td className="max-w-0 py-0 pr-4 pl-2">
-        <span className="flex min-w-0 items-center gap-1">
-          {/* The row itself is mouse-only; this is the keyboard way in. */}
-          <button type="button" className="block min-w-0 flex-1 truncate text-left font-mono text-ink focus-visible:outline-2" onClick={(e) => { e.stopPropagation(); open(); }}>
-            {r.message}
-          </button>
-          <button
-            type="button"
-            className="lh-row-action shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
-            title={filterLabel}
-            onClick={(e) => {
-              e.stopPropagation();
-              const f = { field: "message", op: "equals", value: r.message };
-              filtered ? s.removeFilter(f) : s.addFilter(f);
-            }}
-          >
-            <Icon name={filtered ? "minus" : "plus"} className="size-3.5" />
-            <span className="sr-only">{filterLabel}</span>
-          </button>
-        </span>
-      </td>
-      {s.columns.map((c) => {
-        const v = cell(r, c);
-        return <td key={c} className="max-w-40 truncate px-2 py-0 font-mono text-ink-muted" title={v ?? ""}>{v ?? "—"}</td>;
-      })}
-    </tr>
-  );
-}
-
-function EmptyTable({ rangeEmpty, onClear }: { rangeEmpty: boolean; onClear: () => void }) {
-  return rangeEmpty ? (
-    <StateView kind="empty" icon="inbox" title="No logs found">Widen the time range, or check that your application is sending logs.</StateView>
-  ) : (
-    <StateView kind="empty" icon="search" title="No logs match your filters" action={{ label: "Clear filters", onClick: onClear }}>
-      Try removing a filter or clearing the search.
-    </StateView>
   );
 }
 

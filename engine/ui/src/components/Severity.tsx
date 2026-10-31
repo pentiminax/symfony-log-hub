@@ -11,11 +11,11 @@ export const levelOf = (n: number) => LEVELS[n <= 4 ? 0 : n <= 8 ? 1 : n <= 12 ?
 export const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
 
 /** Dot + word: the colour is never the only signal. */
-export function Severity({ n }: { n: number }) {
+export function Severity({ n, pill = false }: { n: number; pill?: boolean }) {
   const l = levelOf(n);
   return (
-    <span className={`lh-severity lh-severity-${l}`}>
-      <span className={`lh-severity-dot lh-severity-dot-${l}`} />
+    <span className={`lh-severity lh-severity-${l} ${pill ? "!rounded-[4px] !px-[7px] !text-[10px] !font-bold" : ""}`}>
+      {!pill && <span className={`lh-severity-dot lh-severity-dot-${l}`} />}
       {cap(l)}
     </span>
   );
