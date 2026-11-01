@@ -28,7 +28,7 @@ Cible : self-hosted, une organisation, < 100 000 logs/jour (voir [specs/01-produ
 
 Sans ça, personne ne peut installer LogHub.
 
-- [ ] **CI GitHub Actions** : `cargo fmt --check`, `clippy -D warnings`, `cargo test` (service Postgres),
+- [x] **CI GitHub Actions** : `cargo fmt --check`, `clippy -D warnings`, `cargo test` (service Postgres),
       `npm run typecheck` + tests Vitest + build UI, `phpunit` du bundle.
 - [ ] **Image Docker publiée** (GHCR) multi-arch `amd64`/`arm64`, taguée `0.1.0` et `latest`, construite par la CI sur tag.
 - [ ] **Bundle sur Packagist** : split du sous-dossier `packages/symfony-bundle` vers son propre dépôt

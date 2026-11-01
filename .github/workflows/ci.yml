@@ -1,0 +1,129 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Least privilege: every job only reads the repository.
+permissions:
+  contents: read
+
+# One run per branch/PR; a new push cancels the previous one (except on main, where every commit is checked).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  NODE_VERSION: 24
+
+jobs:
+  engine:
+    name: Engine (Rust)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: engine
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: engine
+          POSTGRES_USER: engine
+          POSTGRES_PASSWORD: engine
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -d engine -U engine"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      # #[sqlx::test] creates one database per test from this connection (needs a superuser).
+      DATABASE_URL: postgres://engine:engine@localhost:5432/engine
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Rust stable
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy,rustfmt
+          rustup default stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: engine
+          # Only main writes the cache; PRs reuse it without evicting each other's entries.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo fmt --check
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo test --locked
+
+  ui:
+    name: UI (TypeScript)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: engine/ui
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: engine/ui/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  bundle:
+    name: Bundle (PHP ${{ matrix.php }}, ${{ matrix.deps }} deps)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: packages/symfony-bundle
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # A library has no lock file: check both ends of the allowed dependency ranges.
+          - { php: "8.4", deps: lowest }
+          - { php: "8.5", deps: highest }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: none
+          tools: composer:v2
+      - run: composer validate --strict
+      - uses: ramsey/composer-install@65e4f84970763564f46a70b8a54b90d033b3bdda # 4.0.0
+        with:
+          working-directory: packages/symfony-bundle
+          dependency-versions: ${{ matrix.deps }}
+      - run: vendor/bin/phpunit
+
+  docker:
+    name: Docker image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      # Build only (no push): checks the Dockerfile and the UI-embedded release binary. Layers cached in GHA.
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: engine
+          push: false
+          tags: loghub-engine:ci
+          cache-from: type=gha,scope=engine
+          cache-to: ${{ github.ref == 'refs/heads/main' && 'type=gha,scope=engine,mode=max' || '' }}
