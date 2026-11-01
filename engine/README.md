@@ -9,6 +9,7 @@ One listener (`LISTEN_ADDR`, default `0.0.0.0:8080`) serves everything, with aut
 | Routes | Auth |
 |---|---|
 | `POST /api/v1/logs`, `POST /v1/traces` (OTLP) | project key `Bearer lh_...` |
+| `POST /api/{project_id}/envelope/` (Sentry) | project key in `X-Sentry-Auth` or `?sentry_key=` |
 | `/v1/projects/...` (admin, search) | `Bearer <MASTER_KEY>` |
 | `GET /health` | none |
 | everything else (`GET`) | none: the web UI (SPA, falls back to `index.html`) |
@@ -103,6 +104,26 @@ Optional `trace_id` (<= 32 chars) and `span_id` (<= 16) are stored. The environm
   `environment`, else `deployment.environment`), scope name/version, resource and span attributes as flat
   JSON maps (keys keep their dots; bytes as base64), events `[{name, timestamp, attributes}]`.
   **Span links are dropped.**
+
+## Sentry SDK log ingestion
+
+`POST /api/{project_id}/envelope/` accepts Sentry envelopes, so any Sentry SDK sends its structured
+logs to LogHub with a DSN built from a project key and the project id:
+
+```text
+SENTRY_DSN=http://lh_...@127.0.0.1:8080/<project_id>
+```
+
+- Only `log` items are stored; events, transactions, sessions and every other item type are skipped.
+- Each log goes through the same validation and limits as `/api/v1/logs`. `level` maps to the severity
+  (`warn` is stored as `WARNING`), `body` to the message, typed attributes are flattened, and
+  `sentry.release`, `sentry.environment`, `server.address` become `service.version`,
+  `deployment.environment.name`, `host.name`. Attributes named like the bundle's redacted keys
+  (`password`, `token`, `api_key`, ...) are stored as `[REDACTED]`. `service.name` comes from a `service.name` attribute,
+  else `sentry.sdk.name`. Invalid logs are dropped silently (Sentry SDKs do not read the response).
+- `Content-Encoding: gzip` (the PHP SDK default) or `identity`; the decompressed size is capped by
+  `LOGHUB_MAX_REQUEST_BYTES`. `200 {"id": ...}`, `400` malformed envelope, `401` unknown key or a key
+  from another project, `413`, `415`, `422` more logs than `LOGHUB_MAX_BATCH_RECORDS`.
 
 ### Trace search (admin API)
 

@@ -90,17 +90,9 @@ pub async fn export(
         return Ok(too_large());
     };
     if gzip {
-        // Bound the *decompressed* size too (zip bomb).
-        let mut out = Vec::new();
-        let read = flate2::read::GzDecoder::new(&bytes[..])
-            .take(max as u64 + 1)
-            .read_to_end(&mut out);
-        if read.is_err() {
-            return Err(ApiError::BadRequest("Invalid gzip body.".into()));
-        }
-        if out.len() > max {
+        let Some(out) = gunzip(&bytes, max)? else {
             return Ok(too_large());
-        }
+        };
         bytes = out.into();
     }
 
@@ -138,6 +130,16 @@ pub async fn export(
 
 fn error(status: StatusCode, body: Value) -> Response {
     (status, Json(body)).into_response()
+}
+
+/// `None` when the *decompressed* size exceeds `max` (zip bomb).
+pub(crate) fn gunzip(bytes: &[u8], max: usize) -> Result<Option<Vec<u8>>, ApiError> {
+    let mut out = Vec::new();
+    flate2::read::GzDecoder::new(bytes)
+        .take(max as u64 + 1)
+        .read_to_end(&mut out)
+        .map_err(|_| ApiError::BadRequest("Invalid gzip body.".into()))?;
+    Ok((out.len() <= max).then_some(out))
 }
 
 fn nanos_to_time(n: u64) -> Option<DateTime<Utc>> {

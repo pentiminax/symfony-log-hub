@@ -1131,3 +1131,73 @@ async fn attribute_discovery_is_scoped_and_validates_key(pool: PgPool) {
         .await;
     assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY);
 }
+
+#[sqlx::test]
+async fn sentry_envelope_stores_log_items(pool: PgPool) {
+    use std::io::Write;
+
+    let app = app(pool).await;
+    let (project, key) = app.project().await;
+    let envelope = concat!(
+        "{\"sent_at\":\"2026-11-01T12:00:00Z\"}\n",
+        "{\"type\":\"client_report\"}\n{\"discarded_events\":[]}\n",
+        "{\"type\":\"log\",\"item_count\":2,\"content_type\":\"application/vnd.sentry.items.log+json\"}\n",
+        "{\"items\":[",
+        "{\"timestamp\":1788602400.25,\"trace_id\":\"5b8efff798038103d269b633813fc60c\",\"level\":\"error\",",
+        "\"body\":\"Payment 7 failed\",\"attributes\":{\"sentry.sdk.name\":{\"value\":\"sentry.php.symfony\",\"type\":\"string\"},",
+        "\"sentry.environment\":{\"value\":\"prod\",\"type\":\"string\"},\"payment_id\":{\"value\":7,\"type\":\"integer\"},",
+        "\"password\":{\"value\":\"hunter2\",\"type\":\"string\"}}},",
+        "{\"level\":\"info\",\"body\":\"no timestamp\"}",
+        "]}\n",
+    );
+    let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    gz.write_all(envelope.as_bytes()).unwrap();
+    let body = gz.finish().unwrap();
+    let post = |path: String, auth: Option<String>| {
+        let mut req = app
+            .http
+            .post(format!("{}{path}", app.base))
+            .header("content-encoding", "gzip")
+            .body(body.clone());
+        if let Some(a) = auth {
+            req = req.header("x-sentry-auth", a);
+        }
+        req.send()
+    };
+
+    let auth =
+        format!("Sentry sentry_version=7, sentry_client=sentry.php/4.35.0, sentry_key={key}");
+    let res = post(format!("/api/{project}/envelope/"), Some(auth.clone()))
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let (other, _) = app.project().await;
+    let res = post(format!("/api/{other}/envelope/"), Some(auth))
+        .await
+        .unwrap();
+    assert_eq!(
+        res.status(),
+        StatusCode::UNAUTHORIZED,
+        "key of another project"
+    );
+    let res = post(format!("/api/{project}/envelope/"), None)
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+
+    let records = app.search(&project, json!({})).await["records"].clone();
+    assert_eq!(
+        records.as_array().unwrap().len(),
+        1,
+        "invalid log skipped: {records}"
+    );
+    let r = &records[0];
+    assert_eq!(r["message"], "Payment 7 failed");
+    assert_eq!(r["severity"]["number"], 17);
+    assert_eq!(r["resource"]["service.name"], "sentry.php.symfony");
+    assert_eq!(r["resource"]["deployment.environment.name"], "prod");
+    assert_eq!(r["attributes"]["payment_id"], 7);
+    assert_eq!(r["attributes"]["password"], "[REDACTED]");
+    assert_eq!(r["trace_id"], "5b8efff798038103d269b633813fc60c");
+}

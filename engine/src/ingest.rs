@@ -79,7 +79,10 @@ pub async fn ingest(
 }
 
 pub(crate) async fn authenticate(state: &AppState, headers: &HeaderMap) -> Result<Uuid, ApiError> {
-    let key = auth::bearer(headers).ok_or(ApiError::InvalidApiKey)?;
+    project_for_key(state, auth::bearer(headers).ok_or(ApiError::InvalidApiKey)?).await
+}
+
+pub(crate) async fn project_for_key(state: &AppState, key: &str) -> Result<Uuid, ApiError> {
     sqlx::query_scalar(
         "SELECT project_id FROM api_keys WHERE hashed_key = $1 AND revoked_at IS NULL",
     )
@@ -89,7 +92,7 @@ pub(crate) async fn authenticate(state: &AppState, headers: &HeaderMap) -> Resul
     .ok_or(ApiError::InvalidApiKey)
 }
 
-async fn store(
+pub(crate) async fn store(
     state: &AppState,
     project_id: Uuid,
     logs: &[record::NewLog],

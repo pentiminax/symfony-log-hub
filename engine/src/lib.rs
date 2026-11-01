@@ -10,6 +10,7 @@ pub mod otlp;
 pub mod record;
 pub mod retention;
 pub mod search;
+pub mod sentry;
 pub mod traces;
 pub mod ui;
 
@@ -130,6 +131,7 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/api/v1/logs", post(ingest::ingest))
         .route("/v1/traces", post(otlp::export))
+        .route("/api/{project_id}/envelope/", post(sentry::envelope))
         .route("/health", get(health))
         .merge(admin)
         .fallback(ui::serve)

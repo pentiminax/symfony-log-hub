@@ -103,6 +103,9 @@ Le premier quart d'heure décide si l'outil est adopté.
 ## 7. Intégrations (P2)
 
 - [ ] **OTLP logs** (`POST /v1/logs`, protobuf) : ouvre LogHub aux apps non-PHP sans nouveau SDK.
+- [x] **Envelope Sentry (logs)** (`POST /api/{project_id}/envelope/`) : tout SDK Sentry envoie ses logs
+      avec un DSN `http://lh_...@host/<project_id>`.
+- [ ] **Envelope Sentry : transactions** vers `spans`, et erreurs (`event`) vers des logs avec exception.
 - [ ] **OTLP/JSON** pour `/v1/traces` (aujourd'hui `415`).
 - [ ] **Span links** stockés et affichés (aujourd'hui ignorés).
 
