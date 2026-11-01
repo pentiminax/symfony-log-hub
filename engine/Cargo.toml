@@ -11,7 +11,7 @@ base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
 flate2 = "1"
 hex = "0.4"
-opentelemetry-proto = { version = "0.31", default-features = false, features = ["gen-tonic-messages", "trace"] }
+opentelemetry-proto = { version = "0.33", default-features = false, features = ["gen-tonic-messages", "trace"] }
 prost = "0.14"
 rust-embed = { version = "8", features = ["mime-guess"] }
 rand = "0.9"
