@@ -18,6 +18,11 @@ when@dev:
                 type: service
                 id: loghub.monolog_handler
                 channels: ["!http_client", "!event"]
+            # Same logs through the Sentry SDK, to the engine's Sentry envelope route.
+            sentry_logs:
+                type: service
+                id: Sentry\SentryBundle\Monolog\LogsHandler
+                channels: ["!http_client", "!event"]
 
 when@test:
     monolog:

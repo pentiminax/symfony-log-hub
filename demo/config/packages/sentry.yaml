@@ -1,0 +1,12 @@
+sentry:
+    dsn: '%env(default::SENTRY_DSN)%'
+    options:
+        environment: '%kernel.environment%'
+    # Traces already go through the LogHub bundle (OTLP); the engine skips Sentry transactions.
+    tracing:
+        enabled: false
+
+services:
+    Sentry\SentryBundle\Monolog\LogsHandler:
+        arguments:
+            - !php/const Monolog\Logger::DEBUG
