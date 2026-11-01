@@ -6,6 +6,7 @@ import { MetricCard } from "@/components/MetricCard";
 import { StateView } from "@/components/StateView";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { copyText } from "@/lib/clipboard";
 import { Icon } from "./icons";
 
 const date = (iso: string) => new Date(iso).toLocaleString();
@@ -132,13 +133,7 @@ export function ProjectsList() {
 function NewKey({ created, onDismiss }: { created: CreatedKey; onDismiss: () => void }) {
   const [copied, setCopied] = useState(false);
   const code = useRef<HTMLElement>(null);
-  // navigator.clipboard only exists in secure contexts (HTTPS or localhost): over plain HTTP
-  // on a LAN address, select the key so the user can copy it by hand.
-  const copy = () => {
-    const select = () => code.current && window.getSelection()?.selectAllChildren(code.current);
-    if (!navigator.clipboard) return select();
-    navigator.clipboard.writeText(created.key).then(() => setCopied(true), select);
-  };
+  const copy = () => copyText(created.key, code.current).then(setCopied);
   return (
     <div role="status" className="lh-panel space-y-2 border-brand-line bg-brand-tint p-4">
       <p className="text-body font-medium">
