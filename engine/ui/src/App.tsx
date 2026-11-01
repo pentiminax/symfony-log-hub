@@ -9,6 +9,7 @@ import { ProjectDetail, ProjectsList } from "./Projects";
 import { Shell } from "./Shell";
 import { TraceDetail } from "./TraceDetail";
 import { Traces } from "./Traces";
+import { Welcome } from "./Welcome";
 
 function Soon({ title }: { title: string }) {
   return (
@@ -36,6 +37,7 @@ export function App() {
 
   return (
     <Routes>
+      <Route path="welcome" element={<Welcome />} />
       <Route element={<Shell />}>
         <Route index element={<Overview />} />
         <Route path="logs" element={<Logs />} />

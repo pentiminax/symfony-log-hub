@@ -315,7 +315,7 @@ export function Welcome() {
                   {log ? `First log received from ${String(log.resource["service.name"])}` : slow ? "No log received yet" : `Waiting for the first log from ${project?.name}…`}
                 </span>
                 <span className={cn("block text-label text-muted-foreground", log && "font-mono")}>
-                  {log ? `${log.severity.text} · ${log.message}` : first.isError ? `Could not check: ${first.error.message}` : "Checking every 3 s"}
+                  {log ? `${log.severity.text} · ${log.message}` : first.isError ? `Could not check: ${first.error.message}` : null}
                 </span>
               </span>
             </div>

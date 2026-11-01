@@ -42,8 +42,9 @@ Sans ça, personne ne peut installer LogHub.
 
 Le premier quart d'heure décide si l'outil est adopté.
 
-- [ ] **Premier lancement guidé** : aucun projet → écran « Créer votre premier projet » → clé créée →
-      snippet `loghub.yaml` + `monolog.yaml` + `.env.local` prêt à copier, avec la vraie URL et la clé.
+- [x] **Premier lancement guidé** : aucun projet → `/welcome` « Créer votre premier projet » → clé créée →
+      choix de la stack (Symfony ou Standalone/curl) → snippets prêts à copier avec la vraie URL et la clé,
+      puis attente du premier log.
 - [ ] **États vides utiles** sur Logs / Traces / Overview : « Aucun log reçu pour ce projet » + lien
       vers le snippet d'installation, et « aucun résultat » distinct de « aucune donnée » (proposer
       d'élargir la période ou de retirer les filtres).

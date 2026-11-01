@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
-import { NavLink, Outlet, useLocation, useNavigate, useSearchParams } from "react-router";
+import { Navigate, NavLink, Outlet, useLocation, useNavigate, useSearchParams } from "react-router";
 import { Button } from "@/components/ui/button";
 import { DEFAULT_RANGE, RANGES } from "@/lib/range";
 import { cn } from "@/lib/utils";
@@ -110,6 +110,8 @@ export function Shell() {
 
   const page = nav.find((n) => ("end" in n ? pathname === n.to : pathname.startsWith(n.to)))?.label ?? "";
   const showPeriod = !/^\/(projects|traces\/|logs)/.test(pathname);
+
+  if (projects.data?.length === 0) return <Navigate to="/welcome" replace />;
 
   return (
     <div className="flex h-dvh overflow-hidden bg-background">
