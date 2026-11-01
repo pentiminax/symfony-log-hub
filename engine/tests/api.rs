@@ -1201,3 +1201,85 @@ async fn sentry_envelope_stores_log_items(pool: PgPool) {
     assert_eq!(r["attributes"]["password"], "[REDACTED]");
     assert_eq!(r["trace_id"], "5b8efff798038103d269b633813fc60c");
 }
+
+#[sqlx::test]
+async fn sentry_envelope_stores_transactions_as_spans(pool: PgPool) {
+    let app = app(pool).await;
+    let (project, key) = app.project().await;
+    let transaction = json!({
+        "type": "transaction",
+        "transaction": "GET /pay",
+        "start_timestamp": 1788602400.0,
+        "timestamp": 1788602400.1,
+        "environment": "prod",
+        "release": "1.2.0",
+        "server_name": "api-02",
+        "sdk": {"name": "sentry.php.symfony", "version": "5.15.0"},
+        "tags": {"route": "pay"},
+        "contexts": {"trace": {
+            "trace_id": "5b8efff798038103d269b633813fc60c",
+            "span_id": "a0cfbde2bdff3adc",
+            "op": "http.server",
+            "status": "internal_error",
+            "origin": "auto.http.server",
+            "data": {"http.request.method": "GET", "password": "hunter2"}
+        }},
+        "spans": [
+            {"span_id": "b1cfbde2bdff3adc", "parent_span_id": "a0cfbde2bdff3adc",
+             "op": "db.sql.query", "description": "SELECT 1",
+             "start_timestamp": 1788602400.01, "timestamp": 1788602400.03,
+             "data": {"db.system": "postgresql"}},
+            {"span_id": "not-hex", "op": "cache.get",
+             "start_timestamp": 1788602400.0, "timestamp": 1788602400.0}
+        ]
+    })
+    .to_string();
+    let envelope = format!(
+        "{{\"event_id\":\"9ec79c33ec9942ab8353589fcb2e04dc\"}}\n{{\"type\":\"transaction\",\"length\":{}}}\n{transaction}\n",
+        transaction.len()
+    );
+    let res = app
+        .http
+        .post(format!(
+            // Python and JS SDKs need a numeric project id in the DSN: the key picks the project.
+            "{}/api/1/envelope/?sentry_version=7&sentry_key={key}",
+            app.base
+        ))
+        .body(envelope)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let (s, t) = app
+        .admin(
+            Method::GET,
+            &format!("/v1/projects/{project}/traces/5b8efff798038103d269b633813fc60c"),
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{t}");
+    let spans = t["spans"].as_array().unwrap();
+    assert_eq!(spans.len(), 2, "invalid span dropped: {t}");
+    let root = &spans[0];
+    assert_eq!(root["name"], "GET /pay");
+    assert_eq!(root["kind"], "server");
+    assert_eq!(root["parent_span_id"], Value::Null);
+    assert_eq!(
+        root["status"],
+        json!({"code": "error", "message": "internal_error"})
+    );
+    assert_eq!(root["duration_ns"], 100_000_000);
+    assert_eq!(root["service_name"], "sentry.php.symfony");
+    assert_eq!(root["environment"], "prod");
+    assert_eq!(root["resource"]["host.name"], "api-02");
+    assert_eq!(root["attributes"]["http.request.method"], "GET");
+    assert_eq!(root["attributes"]["password"], "[REDACTED]");
+    assert_eq!(root["attributes"]["route"], "pay");
+    assert_eq!(root["attributes"]["sentry.op"], "http.server");
+    let db = &spans[1];
+    assert_eq!(db["name"], "SELECT 1");
+    assert_eq!(db["kind"], "client");
+    assert_eq!(db["parent_span_id"], "a0cfbde2bdff3adc");
+    assert_eq!(db["attributes"]["db.system"], "postgresql");
+}

@@ -105,16 +105,27 @@ Optional `trace_id` (<= 32 chars) and `span_id` (<= 16) are stored. The environm
   JSON maps (keys keep their dots; bytes as base64), events `[{name, timestamp, attributes}]`.
   **Span links are dropped.**
 
-## Sentry SDK log ingestion
+## Sentry SDK ingestion (logs and traces)
 
 `POST /api/{project_id}/envelope/` accepts Sentry envelopes, so any Sentry SDK sends its structured
-logs to LogHub with a DSN built from a project key and the project id:
+logs and traces to LogHub with a DSN built from a project key and the project id:
 
 ```text
 SENTRY_DSN=http://lh_...@127.0.0.1:8080/<project_id>
 ```
 
-- Only `log` items are stored; events, transactions, sessions and every other item type are skipped.
+The key alone selects the project. The project id in the DSN may be any value (Python and JS SDKs
+require a number, so `http://lh_...@127.0.0.1:8080/1` works), but a UUID there must match the key's
+project.
+
+- `log` items become logs and `transaction` items become spans; error events, sessions and every other
+  item type are skipped.
+- A transaction is stored as its root span (`contexts.trace`, named after `transaction`) plus its child
+  `spans` (named after `description`, else `op`). `op` is kept as the `sentry.op` attribute and sets the
+  kind (`http.server` server; `http.*`, `db.*`, `cache.*`, `queue.*` client; else internal); `status`
+  `ok` is ok, any other value is an error with that message; `origin` is the scope name. `data` and
+  `tags` become attributes (redacted like logs); `release`, `environment`, `server_name` fill the
+  resource and `sdk.name` the service name. Spans with an invalid id or end before start are dropped.
 - Each log goes through the same validation and limits as `/api/v1/logs`. `level` maps to the severity
   (`warn` is stored as `WARNING`), `body` to the message, typed attributes are flattened, and
   `sentry.release`, `sentry.environment`, `server.address` become `service.version`,

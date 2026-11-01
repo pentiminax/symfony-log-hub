@@ -30,24 +30,24 @@ use crate::{AppState, error::ApiError, ingest};
 const SPANS_PER_INSERT: usize = 1000;
 const PROTOBUF: &str = "application/x-protobuf";
 
-struct NewSpan {
-    trace_id: String,
-    span_id: String,
-    parent_span_id: Option<String>,
-    name: String,
-    kind: i16,
-    start: DateTime<Utc>,
-    end: DateTime<Utc>,
-    duration_ns: i64,
-    status_code: i16,
-    status_message: Option<String>,
-    service_name: String,
-    environment: Option<String>,
-    scope_name: Option<String>,
-    scope_version: Option<String>,
-    resource: Value,
-    attributes: Value,
-    events: Value,
+pub(crate) struct NewSpan {
+    pub(crate) trace_id: String,
+    pub(crate) span_id: String,
+    pub(crate) parent_span_id: Option<String>,
+    pub(crate) name: String,
+    pub(crate) kind: i16,
+    pub(crate) start: DateTime<Utc>,
+    pub(crate) end: DateTime<Utc>,
+    pub(crate) duration_ns: i64,
+    pub(crate) status_code: i16,
+    pub(crate) status_message: Option<String>,
+    pub(crate) service_name: String,
+    pub(crate) environment: Option<String>,
+    pub(crate) scope_name: Option<String>,
+    pub(crate) scope_version: Option<String>,
+    pub(crate) resource: Value,
+    pub(crate) attributes: Value,
+    pub(crate) events: Value,
 }
 
 pub async fn export(
@@ -239,7 +239,7 @@ fn parse(
     Ok(span)
 }
 
-fn has_nul(v: &Value) -> bool {
+pub(crate) fn has_nul(v: &Value) -> bool {
     match v {
         Value::String(s) => s.contains('\0'),
         Value::Array(a) => a.iter().any(has_nul),
@@ -270,7 +270,11 @@ fn any(v: &AnyValue) -> Value {
     }
 }
 
-async fn store(state: &AppState, project_id: Uuid, spans: &[NewSpan]) -> Result<(), sqlx::Error> {
+pub(crate) async fn store(
+    state: &AppState,
+    project_id: Uuid,
+    spans: &[NewSpan],
+) -> Result<(), sqlx::Error> {
     if spans.is_empty() {
         return Ok(());
     }
